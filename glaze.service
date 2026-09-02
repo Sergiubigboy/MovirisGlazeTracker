@@ -1,0 +1,26 @@
+[Unit]
+Description=Glaze eye tracker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Change these two if you did not clone into /home/pi/Moviris_glaze.
+User=pi
+WorkingDirectory=/home/pi/Moviris_glaze
+
+Environment=PYTHONUNBUFFERED=1
+# OpenCV spawning four worker threads on a Pi 3A+ costs more in scheduling
+# than it wins; the tracker is already threaded per camera.
+Environment=OPENCV_NUM_THREADS=2
+Environment=OMP_NUM_THREADS=2
+
+ExecStart=/usr/bin/python3 -m glaze --preset lite --eye usb:0 --scene csi
+
+Restart=on-failure
+RestartSec=3
+# A wedged USB camera should not take the Pi down with it.
+MemoryMax=350M
+
+[Install]
+WantedBy=multi-user.target

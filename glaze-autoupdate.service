@@ -1,0 +1,15 @@
+[Unit]
+Description=Glaze auto-update from git (checks origin/main every 5 minutes)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/MovirisGlazeTracker
+ExecStart=/bin/bash tools/auto_update.sh
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

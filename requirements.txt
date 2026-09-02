@@ -1,0 +1,11 @@
+# On Raspberry Pi OS Lite use install_pi.sh instead - apt ships builds that do
+# not need to be compiled on the Pi (pip would try, and 512 MB is not enough).
+#
+# This file is for a laptop/desktop checkout:
+#   pip install -r requirements.txt
+
+numpy>=1.24
+opencv-python>=4.8
+
+# picamera2 is Raspberry Pi only and comes from apt (python3-picamera2).
+# Everything else the tracker needs is in the Python standard library.
