@@ -117,17 +117,20 @@ class Config:
         return cls(**{k: v for k, v in data.items() if k in known})
 
 
-# Keep the processing resolution equal to the capture resolution, or an exact
-# half/quarter of it. Measured on the sample clip, going 640x480 -> 256x192
-# costs *more* per frame than 640x480 -> 320x240, because a non-integer
-# downscale loses OpenCV's fast INTER_AREA path - and at these sizes the
-# resize, not the detector, is the expensive part.
+# Keep the processing resolution an exact half/quarter of the capture
+# resolution (never a non-integer downscale - it loses OpenCV's fast
+# INTER_AREA path, see tools/bench.py). Always CAPTURE at each camera's native
+# resolution, though, not at the (small) processing size directly: cheap UVC
+# sensors like the GC0308 commonly implement their low-resolution modes as a
+# centre CROP of the sensor rather than a scaled-down full field of view, so
+# capturing straight at 320x240 quietly loses most of the picture. The saved
+# resize cost (~0.1ms) is not worth trading away field of view for.
 PRESETS = {
-    # Pi 3A+ / Pi Zero 2 W: 512 MB RAM. Capture straight at the processing
-    # resolution so no rescaling happens at all, and stream sparingly.
+    # Pi 3A+ / Pi Zero 2 W: 512 MB RAM. Still captures at native
+    # resolution (correct field of view) and downsamples in software.
     "lite": dict(proc_width=320, proc_height=240,
-                 eye_capture_width=320, eye_capture_height=240,
-                 scene_capture_width=320, scene_capture_height=240,
+                 eye_capture_width=640, eye_capture_height=480,
+                 scene_capture_width=640, scene_capture_height=480,
                  stream_fps=8.0, scene_stream_fps=5.0,
                  jpeg_quality=55, max_tracking_fps=20.0),
     # Default: capture at 640x480 for a sharper pupil edge, process at half.
