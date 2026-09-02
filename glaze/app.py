@@ -118,7 +118,10 @@ class GlazeApp:
         if self.eye_camera is not None:
             try:
                 self.eye_camera.start()
-            except cameras.CameraError as exc:
+            except Exception as exc:
+                # A camera failing to open (busy device, missing driver, bad
+                # config) must not take the whole process down - report it
+                # and keep serving the web UI with a placeholder frame.
                 self.notice = "eye camera: %s" % exc
                 self.eye_camera = None
 
@@ -128,7 +131,7 @@ class GlazeApp:
         if self.scene_camera is not None:
             try:
                 self.scene_camera.start()
-            except cameras.CameraError as exc:
+            except Exception as exc:
                 self.notice = ("%s | scene camera: %s" % (self.notice, exc)).strip(" |")
                 self.scene_camera = None
 
