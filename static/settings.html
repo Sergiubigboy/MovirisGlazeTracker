@@ -206,7 +206,15 @@
     <div class="field"><label>ochi închiși minim (ms)<small>sub asta = clipit</small></label><input type="number" min="300" max="4000" data-key="long_close_ms"></div>
     <div class="field"><label>ochi închiși maxim (ms)<small>peste asta = pierdere tracking, ignorat</small></label><input type="number" min="500" max="10000" data-key="long_close_max_ms"></div>
     <div class="field"><label>pauză după comandă (s)</label><input type="number" step="0.5" min="0" max="30" data-key="long_close_cooldown_s"></div>
-    <div class="field"><label>confirmă „începem?"<small>protecție împotriva pornirilor accidentale</small></label><input type="checkbox" data-key="confirm_start"></div>
+    <div class="field"><label>confirmă „începem?"<small>doar pentru pornirea prin gest</small></label><input type="checkbox" data-key="confirm_start"></div>
+    <div class="field">
+      <label>gest care pornește sesiunea<small>„niciunul" = doar butonul</small></label>
+      <select data-key="start_gesture" style="background:#21262d;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px">
+        <option value="none">niciunul (doar buton)</option>
+        <option value="long_close">ochii închiși ~1s</option>
+        <option value="triple_blink">triplu clipit</option>
+      </select>
+    </div>
     <div class="row" style="margin-top:6px">
       <button onclick="send('cue_test', {cue: 'start'})">test sunet</button>
     </div>
@@ -300,7 +308,11 @@ function applyAll() {
   document.querySelectorAll("[data-key]").forEach(function (el) {
     var key = el.dataset.key;
     if (el.type === "checkbox") values[key] = el.checked;
-    else if (el.tagName === "SELECT") values[key] = parseInt(el.value, 10);
+    else if (el.tagName === "SELECT") {
+      // rotation is numeric, the gesture picker is a name
+      var raw = el.value;
+      values[key] = /^-?\d+$/.test(raw) ? parseInt(raw, 10) : raw;
+    }
     else if (el.type === "text") values[key] = el.value;   // model name, not a number
     else values[key] = parseFloat(el.value);
   });

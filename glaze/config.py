@@ -159,6 +159,11 @@ class Config:
     # Holding both eyes shut this long is the main control gesture: once to
     # start choosing, once more when finished. Far easier to perform reliably
     # than triple-blinking, which needs timing the person may not have.
+    # What may START a session: "none" (only the button / API), "long_close"
+    # or "triple_blink". Defaults to none because every gesture tried so far
+    # is derived from "no pupil found", which also fires on tracking dropouts -
+    # and an unwanted session costs the wearer far more than a missed one.
+    start_gesture: str = "none"
     long_close_ms: float = 900.0
     # ...and no longer than this. "Eye closed" really means "no pupil found",
     # which also covers tracking dropouts and simply resting with the eyes
@@ -409,7 +414,7 @@ PERSISTABLE = {
     "menu_cooldown_s", "menu_require_model", "model_ready_rays",
     "sound_cues", "gaze_log_interval_s", "show_guide",
     "long_close_ms", "long_close_max_ms", "long_close_cooldown_s",
-    "confirm_start", "gaze_offset_x", "gaze_offset_y",
+    "confirm_start", "start_gesture", "gaze_offset_x", "gaze_offset_y",
 }
 
 

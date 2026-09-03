@@ -507,12 +507,12 @@ Se bazează pe ideea că aproape orice mesaj se reduce la patru piloni —
 ### Fluxul
 
 ```
-ȚII OCHII ÎNCHIȘI ~1 SECUNDĂ           ← singurul gest de care ai nevoie
-   ↓
-„ÎNCEPEM?"  răspunzi SUS = da           ← protecție anti-pornire accidentală
+APEȘI „ÎNCEPE SELECȚIA" în dashboard     ← implicit, doar butonul pornește
    ↓
 ALEGI       te uiți fix ~1s la fiecare lucru → bip = l-a prins
             (max 3, în orice ordine)
+            · privire lungă mult în STÂNGA  = vreau o nevoie
+            · privire lungă mult în DREAPTA = vreau să spun că mă doare
    ↓
 ȚII OCHII ÎNCHIȘI ~1 SECUNDĂ           ← „am terminat de ales"
    ↓
@@ -524,7 +524,22 @@ ASKING      fiecare pilon sub prag → opțiunile lui, pe rând, în cască
 SPEAKING    propoziția finală, pe difuzorul mare
 ```
 
-**Același gest pornește și oprește alegerea.**
+**Meniurile de nevoi/dureri există doar în timpul selecției.** Adică: după ce
+ai pornit, dacă te uiți la extremă în loc să alegi un obiect, înseamnă „ce
+vreau nu e ceva din fața mea, e o nevoie sau o durere". Nu se mai declanșează
+din repaus — versiunea aia îți vorbea în ureche de fiecare dată când te uitai
+într-o parte.
+
+### Pornirea
+
+Implicit, **numai butonul** pornește o sesiune (`start_gesture = "none"`).
+Gesturile derivate din „nu găsesc pupila" se declanșează și pe pierderile de
+tracking, iar o sesiune nedorită costă mult mai mult decât una ratată.
+
+Din `/settings` poți activa un gest de pornire dacă vrei să testezi:
+ochii închiși ~1s, sau triplu clipit. Când pornirea vine dintr-un gest,
+sistemul întreabă întâi „începem?" ca filtru; când vine de la buton, nu — ai
+apăsat, e clar.
 
 ### De ce nu pornește accidental
 
@@ -533,8 +548,9 @@ pierderile de tracking, nu doar închiderea intenționată. Fără apărări, or
 pierdere de peste o secundă pornea o sesiune, inclusiv clipitul natural de
 după ce dispozitivul terminase de vorbit.
 
-Trei apărări, pentru că aici **un fals pozitiv costă mult mai mult decât un
-fals negativ** — mai bine ratează o comandă decât să pornească singur:
+Dacă activezi un gest de pornire, îl apără astea — aici **un fals pozitiv
+costă mult mai mult decât un fals negativ**, mai bine ratează o comandă decât
+să pornească singur:
 
 | Apărare | Ce respinge |
 |---|---|

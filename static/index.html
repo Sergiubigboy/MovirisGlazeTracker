@@ -122,6 +122,17 @@
   </span>
 </header>
 
+<div style="padding:12px 20px 0; display:flex; gap:10px; flex-wrap:wrap; align-items:center">
+  <button id="btnStart" onclick="startConversation()"
+          style="font-size:16px; padding:12px 22px; border-color:var(--accent); color:var(--accent)">
+    ▶ începe selecția
+  </button>
+  <button onclick="send('conversation_cancel')" style="padding:12px 18px">oprește</button>
+  <span style="color:var(--muted); font-size:12px">
+    apoi uită-te fix ~1s la fiecare lucru · ține ochii închiși ~1s când ai terminat
+  </span>
+</div>
+
 <div id="convBanner">
   <div class="stage" id="convStage">-</div>
   <div class="big" id="convBig">-</div>
@@ -275,6 +286,12 @@ function swapCameras() {
 }
 
 // Removes the standing bias in the gaze signal: look straight ahead, press.
+function startConversation() {
+  send("conversation_start").then(function (data) {
+    if (data && data.ok === false) log(data.error);
+  });
+}
+
 function setCenter() {
   log("uită-te DREPT ÎNAINTE și nu mișca...");
   setTimeout(function () {
@@ -372,7 +389,7 @@ function renderConversation(c, s) {
     } else {
       banner.className = "on";
       stage.textContent = "gata de pornire";
-      big.textContent = "ține ochii închiși 1 secundă ca să începi";
+      big.textContent = "apasă „începe selecția"";
       hint.textContent = c.last_sentence
         ? "ultima propoziție: " + c.last_sentence
         : "apoi uită-te pe rând la lucrurile despre care vrei să vorbești";
@@ -387,7 +404,8 @@ function renderConversation(c, s) {
     stage.textContent = "pasul 1 · alege  (" + (c.captures || 0) + " selectate)";
     big.textContent = "uită-te fix la ce vrei";
     hint.textContent = "ține privirea nemișcată ~1 secundă pe fiecare lucru — auzi un bip când l-a prins. " +
-                       "Când ai terminat, ȚINE OCHII ÎNCHIȘI o secundă.";
+                       "Când ai terminat, ȚINE OCHII ÎNCHIȘI ~1 secundă. " +
+                       "Privire lungă mult în stânga = nevoi, mult în dreapta = dureri.";
   } else if (state === "ANALYZING") {
     banner.className = "on thinking";
     stage.textContent = "pasul 2 · mă gândesc";

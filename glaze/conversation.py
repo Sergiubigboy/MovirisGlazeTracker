@@ -70,6 +70,8 @@ class ConversationEngine:
         self.model_ready = False
         self._closed_peak = 0.0
         self._long_close_blocked_until = 0.0
+        # Set when an extreme look during selection asks for a needs/pain menu.
+        self._menu_request = None
         # Set when the wearer signals "done choosing" by holding their eyes
         # shut; the capture loop waits on it instead of only a timeout.
         self._finish_capturing = threading.Event()
@@ -101,10 +103,13 @@ class ConversationEngine:
         if cfg.conversation_enabled:
             self._check_long_close(result, now)
 
-        if state == "CAPTURING" and scene_point is not None:
-            self._check_capture_dwell(scene_point, now)
-
-        if state == "IDLE" and cfg.conversation_enabled:
+        if state == "CAPTURING":
+            if scene_point is not None:
+                self._check_capture_dwell(scene_point, now)
+            # Only while choosing: looking to an extreme then means "what I
+            # want is not an object in front of me, it is a need or a pain".
+            # Watching for this from idle - as it used to - meant every glance
+            # aside started talking at the wearer unprompted.
             self._check_menu_dwell(now)
 
     def _vertical_zone(self, gaze):
@@ -160,6 +165,8 @@ class ConversationEngine:
             state = self.state
 
         if state == "IDLE":
+            if cfg.start_gesture != "long_close":
+                return
             self.log.add("state", "eye closure -> start", {"ms": round(peak)})
             self.start("long_close")
         elif state == "CAPTURING":
@@ -194,7 +201,10 @@ class ConversationEngine:
             return
 
         self._menu_blocked_until = now + cfg.menu_cooldown_s
-        self.start(menu)
+        self.log.add("state", "extreme look while choosing -> menu", {"menu": menu})
+        # Hand it to the running worker rather than starting a second session.
+        self._menu_request = menu
+        self._finish_capturing.set()
 
     def _check_capture_dwell(self, point, now):
         cfg = self.cfg
@@ -242,7 +252,11 @@ class ConversationEngine:
         self.cue("capture")
 
     # -- session control ---------------------------------------------------
-    def start(self, trigger="triple_blink"):
+    def start(self, trigger="triple_blink", confirm=None):
+        # A button press is already unambiguous intent; only a gesture-derived
+        # start needs confirming.
+        self._confirm_this_run = (self.cfg.confirm_start if confirm is None
+                                  else bool(confirm))
         with self._lock:
             if self.state != "IDLE":
                 return {"ok": False, "error": "conversation already running (%s)" % self.state}
@@ -251,6 +265,7 @@ class ConversationEngine:
             self._dwell_anchor = None
             self._last_capture_point = None
             self._finish_capturing.clear()
+            self._menu_request = None
             self.pillars = {}
             self.current_question = ""
             self.last_error = ""
@@ -293,6 +308,11 @@ class ConversationEngine:
     def _run_menu(self, menu):
         """Fixed list, no camera, no model - works with the network down."""
         self.log.add("state", "menu opened", {"menu": menu})
+        # Reached either directly or by diverting out of selection; either way
+        # we are asking now, and the banner must say so rather than still
+        # telling the wearer to keep choosing objects.
+        with self._lock:
+            self.state = "ASKING"
 
         # Confirm first: the trigger is a sustained sideways look, which can
         # still happen by accident, and reading a whole list into someone's
@@ -321,7 +341,7 @@ class ConversationEngine:
         # signal is derived from "no pupil found", which can never be made
         # perfectly specific, so the confirmation is what actually guarantees
         # the session was wanted.
-        if cfg.confirm_start:
+        if self._confirm_this_run:
             with self._lock:
                 self.state = "ASKING"
             if not self._ask("începem"):
@@ -338,6 +358,12 @@ class ConversationEngine:
             if count >= cfg.max_captures or time.time() > deadline:
                 break
             if self._finish_capturing.is_set():
+                if self._menu_request:
+                    menu, self._menu_request = self._menu_request, None
+                    self.log.add("capture", "switching to menu instead",
+                                 {"menu": menu, "photos_discarded": count})
+                    self._run_menu(menu)
+                    return
                 self.log.add("capture", "finished choosing on request",
                              {"photos": count})
                 break

@@ -623,6 +623,7 @@ class GlazeApp:
             "long_close_max_ms": cfg.long_close_max_ms,
             "long_close_cooldown_s": cfg.long_close_cooldown_s,
             "confirm_start": cfg.confirm_start,
+            "start_gesture": cfg.start_gesture,
             "gaze_offset_x": cfg.gaze_offset_x,
             "gaze_offset_y": cfg.gaze_offset_y,
             "gaze_log_interval_s": cfg.gaze_log_interval_s,
@@ -772,7 +773,10 @@ class GlazeApp:
             return self.restart_cameras()
 
         if action == "conversation_start":
-            return self.conversation.start(payload.get("trigger") or "triple_blink")
+            # Pressing a button is unambiguous, so skip the "începem?" step
+            # that exists only to filter accidental gesture triggers.
+            return self.conversation.start(payload.get("trigger") or "button",
+                                           confirm=payload.get("confirm", False))
 
         if action == "conversation_cancel":
             return self.conversation.cancel()
