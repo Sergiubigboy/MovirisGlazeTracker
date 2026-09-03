@@ -142,6 +142,54 @@ diferite ca să estimeze centrul sferei ochiului (`rays` ajunge la 100,
 `sphere radius` se stabilizează). Apoi apasă `lock sphere` și calibrează —
 altfel modelul se mai mișcă sub tine în timpul calibrării.
 
+### Detecție clipit (`blinking`, `triple_blink`)
+
+Trackerul detectează clipitul din simpla absență a pupilei: dacă elipsa nu e
+găsită pentru o durată scurtă (implicit 60–400ms), e clipit; dacă durează mai
+mult (ochelari mișcați, ochiul iese din cadru), e ignorat ca pierdere reală de
+tracking, nu clipit. Trei clipiri în aceeași fereastră de timp (implicit
+1500ms) declanșează `triple_blink: true` pentru un frame în `/api/state` și
+`/events` — un gest simplu, ușor de folosit ca declanșator pentru alte
+funcții (ex. un mod de selecție într-o interfață AAC).
+
+Gesturile sunt **dezactivate** primele `blink_warmup_s` secunde (implicit 8)
+după fiecare `reset model` — atât are nevoie modelul sferei ochiului să se
+stabilizeze, ca să nu declanșeze fals în timp ce tracking-ul abia pornește.
+Starea `armed` din `/api/state` arată dacă gesturile sunt active acum.
+
+Toți parametrii ăștia (praguri de durată, fereastră, warmup) sunt reglabili
+live din [`/settings`](#pagina-de-setari), fără restart.
+
+### Pagina de setări {#pagina-de-setari}
+
+Link "settings & power" din header-ul principal, sau direct `http://<ip>:8000/settings`.
+Toți parametrii de mai sus (cameră, stream, detecție pupilă, clipit) sunt
+acolo, cu aplicare instant din browser, fără SSH și fără restart de serviciu —
+utile: praguri de detecție, fps-uri, ferestre de calibrare a sferei ochiului.
+
+Excepție: rezoluția de procesare (`proc_width`/`proc_height`) și sursele de
+cameră (`--eye`/`--scene`) NU sunt live-reglabile — schimbă comportamentul
+capturii de la cameră, care are nevoie de reinițializare completă. Alea rămân
+din linia de comandă / fișierul de service, urmate de `restart tracker`.
+
+Pagina mai are trei butoane de alimentare:
+- **restart tracker** — repornește doar procesul `glaze` (echivalent
+  `systemctl restart glaze`), util după ce ai schimbat manual `ExecStart`.
+- **reboot Pi** — repornește tot Raspberry Pi-ul.
+- **oprește Pi** — shutdown complet; repornești manual de la alimentare.
+
+Astea rulează comenzi `sudo systemctl ...` pe Pi, deci au nevoie de drepturi
+NOPASSWD explicite. Rulează o singură dată pe Pi:
+
+```bash
+echo "$USER ALL=(ALL) NOPASSWD: /bin/systemctl restart glaze, /bin/systemctl reboot, /bin/systemctl poweroff" | sudo tee /etc/sudoers.d/glaze-power
+```
+
+Fără asta, butoanele răspund `ok: true` (comanda a pornit) dar nu se întâmplă
+nimic — `sudo` cere parolă în fundal și eșuează silențios, pentru că serverul
+nu așteaptă răspunsul procesului (nu poate: `reboot`/`poweroff` omoară chiar
+procesul care a primit cererea HTTP).
+
 ---
 
 ## 5. Cum scoți datele în programul tău

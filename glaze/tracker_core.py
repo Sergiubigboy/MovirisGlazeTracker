@@ -399,6 +399,15 @@ class TrackingResult:
     gaze_normalized: Optional[Tuple[float, float]] = None
     sphere_locked: bool = False
     ray_count: int = 0
+    # True while the eye has been undetected for a blink-length streak.
+    blinking: bool = False
+    # Confirmed blinks (full close-open cycles) within the trailing window.
+    blink_count_recent: int = 0
+    # One-frame pulse: just reached 3 blinks within the window.
+    triple_blink: bool = False
+    # False during the warm-up period right after a model reset, so gesture
+    # detection doesn't fire while the eye-sphere is still settling.
+    armed: bool = False
 
     def to_dict(self):
         def rounded(seq, digits=4):
@@ -423,6 +432,10 @@ class TrackingResult:
             "gaze_normalized": rounded(self.gaze_normalized),
             "sphere_locked": self.sphere_locked,
             "rays": self.ray_count,
+            "blinking": self.blinking,
+            "blink_count_recent": self.blink_count_recent,
+            "triple_blink": self.triple_blink,
+            "armed": self.armed,
         }
 
 
@@ -469,6 +482,11 @@ class EyeTracker:
         self._last_time = None
         self._fps = 0.0
         self.last_result = TrackingResult()
+
+        self.session_start = time.time()
+        self._blink_active = False
+        self._blink_start = 0.0
+        self._blink_events = []
 
     # -- controls -------------------------------------------------------
     def toggle_sphere_adjustment(self):
@@ -572,6 +590,41 @@ class EyeTracker:
         if not np.all(np.isfinite(mean)):
             return None
         return (int(mean[0]), int(mean[1]))
+
+    # -- gestures ---------------------------------------------------------
+    def _update_blink(self, ok, now):
+        """Dropout-based blink detection: a short 'pupil not found' streak.
+
+        Distinguishes a blink from real tracking loss purely by duration -
+        a blink is quick (``blink_min_ms``..``blink_max_ms``); glasses
+        slipping or the eye leaving the frame lasts much longer and is
+        silently ignored. Three confirmed blinks inside ``blink_window_ms``
+        raise ``triple_blink`` for one frame, but only once the model has
+        had ``blink_warmup_s`` to settle after the last reset - otherwise
+        the noisy first seconds after a reset could fire it by accident.
+        """
+        cfg = self.cfg
+        triple = False
+
+        if not ok:
+            if not self._blink_active:
+                self._blink_active = True
+                self._blink_start = now
+        elif self._blink_active:
+            self._blink_active = False
+            duration_ms = (now - self._blink_start) * 1000.0
+            if cfg.blink_min_ms <= duration_ms <= cfg.blink_max_ms:
+                self._blink_events.append(now)
+
+        window_s = cfg.blink_window_ms / 1000.0
+        self._blink_events = [t for t in self._blink_events if now - t <= window_s]
+
+        armed = (now - self.session_start) >= cfg.blink_warmup_s
+        if armed and len(self._blink_events) >= 3:
+            triple = True
+            self._blink_events = []  # consume so it fires once, not every frame
+
+        return self._blink_active, len(self._blink_events), triple, armed
 
     # -- per frame ------------------------------------------------------
     def process_frame(self, frame, draw=True):
@@ -682,6 +735,12 @@ class EyeTracker:
                 (center[1] - model_center_average[1]) / radius,
             )
 
+        blinking, blink_count, triple, armed = self._update_blink(result.ok, now)
+        result.blinking = blinking
+        result.blink_count_recent = blink_count
+        result.triple_blink = triple
+        result.armed = armed
+
         if draw:
             self._draw_overlay(frame, result, model_center_average, center, pupil_ellipse)
 
@@ -748,10 +807,16 @@ class EyeTracker:
         scale = 0.38 if self.cfg.proc_width < 480 else 0.5
         step = int(round(15 * scale / 0.38))
 
-        top = "conf %.0f%%  fps %.1f  rays %d%s" % (
+        top = "conf %.0f%%  fps %.1f  rays %d%s%s" % (
             result.confidence * 100, result.fps, len(self.ray_lines),
-            "  LOCKED" if not self.eye_sphere_adjustment_enabled else "")
+            "  LOCKED" if not self.eye_sphere_adjustment_enabled else "",
+            "  BLINK" if result.blinking else "")
         self._put_text(frame, top, (6, step), scale)
+
+        if not result.armed:
+            self._put_text(frame, "gestures warming up...", (6, step * 2), scale)
+        elif result.blink_count_recent > 0:
+            self._put_text(frame, "blinks: %d" % result.blink_count_recent, (6, step * 2), scale)
 
         # Upstream printed the gaze vector along the bottom edge; keeping it
         # there leaves the eye itself unobstructed.

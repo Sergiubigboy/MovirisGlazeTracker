@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import socket
+import subprocess
 import threading
 import time
 
@@ -94,6 +95,7 @@ class GlazeApp:
         self._udp_socket = None
         self._udp_target = None
         self.notice = ""
+        self._last_triple_blink_at = None
 
         self._setup_udp()
 
@@ -165,7 +167,6 @@ class GlazeApp:
         cfg = self.cfg
         sequence = None
         last_encode = 0.0
-        min_period = 1.0 / cfg.max_tracking_fps if cfg.max_tracking_fps > 0 else 0.0
         next_due = time.perf_counter()
 
         while not self.stopping:
@@ -180,6 +181,9 @@ class GlazeApp:
                 continue
 
             # Throttle so the web server and the scene camera get CPU too.
+            # Read max_tracking_fps fresh every frame - it's live-adjustable
+            # from the settings page, not just a startup value.
+            min_period = 1.0 / cfg.max_tracking_fps if cfg.max_tracking_fps > 0 else 0.0
             now = time.perf_counter()
             if min_period and now < next_due:
                 time.sleep(min(0.02, next_due - now))
@@ -199,6 +203,9 @@ class GlazeApp:
                 continue
 
             self._publish_gaze(result)
+
+            if result.triple_blink:
+                self._last_triple_blink_at = time.time()
 
             if watching:
                 elapsed = time.perf_counter() - last_encode
@@ -326,15 +333,31 @@ class GlazeApp:
             "roi_mode": cfg.roi_mode,
             "flip_eye_vertical": cfg.flip_eye_vertical,
             "flip_eye_horizontal": cfg.flip_eye_horizontal,
+            "flip_scene_vertical": cfg.flip_scene_vertical,
+            "flip_scene_horizontal": cfg.flip_scene_horizontal,
             "rotate_eye_degrees": cfg.rotate_eye_degrees,
             "thresholds": list(self.tracker.thresholds),
             "draw_overlay": cfg.draw_overlay,
             "jpeg_quality": cfg.jpeg_quality,
             "stream_fps": cfg.stream_fps,
+            "scene_stream_fps": cfg.scene_stream_fps,
             "max_tracking_fps": cfg.max_tracking_fps,
             "scene_enabled": self.scene_camera is not None,
             "write_gaze_file": cfg.write_gaze_file,
             "udp_target": cfg.udp_target,
+            "pupil_confidence_threshold": cfg.pupil_confidence_threshold,
+            "pupil_confidence_threshold_sphere": cfg.pupil_confidence_threshold_sphere,
+            "min_model_centers": cfg.min_model_centers,
+            "max_rays": cfg.max_rays,
+            "intersection_ray_count": cfg.intersection_ray_count,
+            "minimum_intersection_angle_degrees": cfg.minimum_intersection_angle_degrees,
+            "max_stored_intersections": cfg.max_stored_intersections,
+            "model_center_average_window": cfg.model_center_average_window,
+            "smoothing": self.smoother.alpha,
+            "blink_min_ms": cfg.blink_min_ms,
+            "blink_max_ms": cfg.blink_max_ms,
+            "blink_window_ms": cfg.blink_window_ms,
+            "blink_warmup_s": cfg.blink_warmup_s,
         }
 
     def state(self):
@@ -365,6 +388,10 @@ class GlazeApp:
         }
         payload["notice"] = self.notice
         payload["viewers"] = {name: channel.viewers for name, channel in self.channels.items()}
+        payload["last_triple_blink_seconds_ago"] = (
+            round(time.time() - self._last_triple_blink_at, 1)
+            if self._last_triple_blink_at is not None else None
+        )
         return payload
 
     def command(self, action, payload):
@@ -420,7 +447,25 @@ class GlazeApp:
             self.smoother.reset()
             return {"ok": loaded, "calibration": self.calibration.to_dict()}
 
+        if action in ("poweroff", "reboot", "restart_service"):
+            return self._power_action(action)
+
         return {"ok": False, "error": "unknown action: %s" % action}
+
+    def _power_action(self, action):
+        # Requires a NOPASSWD sudoers entry for these exact systemctl calls -
+        # see README. Popen (not run) so the HTTP response can still be sent
+        # back before this process is killed by its own request.
+        commands = {
+            "poweroff": ["sudo", "systemctl", "poweroff"],
+            "reboot": ["sudo", "systemctl", "reboot"],
+            "restart_service": ["sudo", "systemctl", "restart", "glaze"],
+        }
+        try:
+            subprocess.Popen(commands[action])
+        except OSError as exc:
+            return {"ok": False, "error": "could not run %s: %s" % (action, exc)}
+        return {"ok": True, "message": action}
 
     def _apply_settings(self, values):
         cfg = self.cfg
@@ -446,6 +491,17 @@ class GlazeApp:
             "scene_stream_fps": (float, 1.0, 30.0),
             "max_tracking_fps": (float, 1.0, 120.0),
             "pupil_confidence_threshold": (float, 0.1, 1.0),
+            "pupil_confidence_threshold_sphere": (float, 0.1, 1.0),
+            "min_model_centers": (int, 1, 500),
+            "max_rays": (int, 5, 500),
+            "intersection_ray_count": (int, 2, 20),
+            "minimum_intersection_angle_degrees": (float, 0.0, 45.0),
+            "max_stored_intersections": (int, 50, 5000),
+            "model_center_average_window": (int, 5, 1000),
+            "blink_min_ms": (float, 10.0, 500.0),
+            "blink_max_ms": (float, 50.0, 2000.0),
+            "blink_window_ms": (float, 300.0, 5000.0),
+            "blink_warmup_s": (float, 0.0, 60.0),
         }
         for key, (cast, low, high) in numbers.items():
             if key in values:

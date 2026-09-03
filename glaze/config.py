@@ -70,6 +70,18 @@ class Config:
     max_stored_intersections: int = 1500
     model_center_average_window: int = 200
 
+    # ---- blink detection -------------------------------------------------
+    # A blink is a "no pupil found" streak whose duration lands in this
+    # window - short enough to not be tracking loss (glasses moved, eye out
+    # of frame), long enough to not be one noisy frame.
+    blink_min_ms: float = 60.0
+    blink_max_ms: float = 400.0
+    # 3 blinks within this window count as one "triple blink" gesture.
+    blink_window_ms: float = 1500.0
+    # Gesture detection is armed only this long after the model was last
+    # reset, so the eye-sphere calibration settles before gestures can fire.
+    blink_warmup_s: float = 8.0
+
     # ---- output --------------------------------------------------------
     host: str = "0.0.0.0"
     port: int = 8000

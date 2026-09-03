@@ -63,7 +63,9 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
 
         if path in ("/", "/index.html"):
-            return self._serve_index()
+            return self._serve_static_page("index.html")
+        if path in ("/settings", "/settings.html"):
+            return self._serve_static_page("settings.html")
         if path == "/eye.mjpg":
             return self._serve_mjpeg("eye")
         if path == "/scene.mjpg":
@@ -108,13 +110,13 @@ class Handler(BaseHTTPRequestHandler):
         return self._send_json(result)
 
     # -- payloads -------------------------------------------------------
-    def _serve_index(self):
-        index_path = os.path.join(STATIC_DIR, "index.html")
+    def _serve_static_page(self, filename):
+        file_path = os.path.join(STATIC_DIR, filename)
         try:
-            with open(index_path, "rb") as handle:
+            with open(file_path, "rb") as handle:
                 body = handle.read()
         except OSError:
-            return self._send_text("static/index.html is missing", status=500)
+            return self._send_text("static/%s is missing" % filename, status=500)
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")

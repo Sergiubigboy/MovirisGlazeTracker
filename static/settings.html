@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glaze - settings</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --line: #262d36;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #4ade80;
+    --warn: #f0b429;
+    --bad: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    padding: 14px 20px; border-bottom: 1px solid var(--line);
+  }
+  header h1 { margin: 0; font-size: 16px; letter-spacing: .08em; text-transform: uppercase; }
+  header a { color: var(--accent); text-decoration: none; margin-left: auto; }
+
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; padding: 16px 20px; max-width: 1200px; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+  .card h2 { margin: 0 0 12px; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+
+  .field { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .field label { color: var(--text); font-size: 13px; }
+  .field small { display: block; color: var(--muted); font-size: 11px; margin-top: 1px; }
+  .field input[type=number] {
+    width: 90px; background: #21262d; border: 1px solid var(--line); border-radius: 6px;
+    color: var(--text); padding: 5px 7px; font: inherit;
+  }
+  .field input[type=checkbox] { width: 18px; height: 18px; }
+
+  button {
+    font: inherit; color: var(--text); background: #21262d; border: 1px solid var(--line);
+    border-radius: 6px; padding: 8px 14px; cursor: pointer; width: 100%;
+  }
+  button:hover { border-color: #3d444d; }
+  button.primary { border-color: var(--accent); color: var(--accent); }
+  button.danger { border-color: var(--bad); color: var(--bad); }
+  .row { display: flex; gap: 8px; margin-top: 4px; }
+
+  #applyBar {
+    position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 12px 20px;
+    border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: center;
+  }
+  #applyBar button { width: auto; }
+  #log { color: var(--muted); font-size: 12px; }
+
+  .statline { display: flex; justify-content: space-between; padding: 3px 0; color: var(--muted); }
+  .statline b { color: var(--text); font-weight: normal; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Glaze / settings</h1>
+  <span id="log"></span>
+  <a href="/">&larr; dashboard</a>
+</header>
+
+<div id="applyBar">
+  <button class="primary" onclick="applyAll()">apply all changes</button>
+  <span id="applyMsg" style="color:var(--muted)"></span>
+</div>
+
+<main>
+
+  <section class="card">
+    <h2>Stare live</h2>
+    <div class="statline"><span>tracking</span><b id="stOk">-</b></div>
+    <div class="statline"><span>confidence</span><b id="stConf">-</b></div>
+    <div class="statline"><span>gestures armed</span><b id="stArmed">-</b></div>
+    <div class="statline"><span>ochi închis acum</span><b id="stBlinking">-</b></div>
+    <div class="statline"><span>clipiri (fereastră curentă)</span><b id="stBlinkCount">-</b></div>
+    <div class="statline"><span>ultimul triplu-clipit</span><b id="stTriple">-</b></div>
+  </section>
+
+  <section class="card">
+    <h2>Cameră ochi</h2>
+    <div class="field"><label>flip vertical</label><input type="checkbox" data-key="flip_eye_vertical"></div>
+    <div class="field"><label>flip orizontal</label><input type="checkbox" data-key="flip_eye_horizontal"></div>
+    <div class="field">
+      <label>rotație</label>
+      <select id="rotate" data-key="rotate_eye_degrees" style="background:#21262d;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px">
+        <option value="0">0°</option><option value="90">90°</option>
+        <option value="180">180°</option><option value="270">270°</option>
+      </select>
+    </div>
+    <div class="field"><label>overlay desenat</label><input type="checkbox" data-key="draw_overlay"></div>
+    <div class="field"><label>ROI mode (crop rapid)</label><input type="checkbox" data-key="roi_mode"></div>
+  </section>
+
+  <section class="card">
+    <h2>Cameră scenă</h2>
+    <div class="field"><label>flip vertical</label><input type="checkbox" data-key="flip_scene_vertical"></div>
+    <div class="field"><label>flip orizontal</label><input type="checkbox" data-key="flip_scene_horizontal"></div>
+  </section>
+
+  <section class="card">
+    <h2>Stream / performanță</h2>
+    <div class="field"><label>jpeg quality<small>20-95</small></label><input type="number" min="20" max="95" data-key="jpeg_quality"></div>
+    <div class="field"><label>stream fps ochi<small>1-30</small></label><input type="number" min="1" max="30" data-key="stream_fps"></div>
+    <div class="field"><label>stream fps scenă<small>1-30</small></label><input type="number" min="1" max="30" data-key="scene_stream_fps"></div>
+    <div class="field"><label>max tracking fps<small>1-120</small></label><input type="number" min="1" max="120" data-key="max_tracking_fps"></div>
+  </section>
+
+  <section class="card">
+    <h2>Detecție pupilă</h2>
+    <div class="field"><label>prag încredere elipsă<small>0.1-1.0</small></label><input type="number" step="0.05" min="0.1" max="1" data-key="pupil_confidence_threshold"></div>
+    <div class="field"><label>prag încredere sferă<small>0.1-1.0</small></label><input type="number" step="0.05" min="0.1" max="1" data-key="pupil_confidence_threshold_sphere"></div>
+    <div class="field"><label>centre model minime<small>înainte de rază fixă</small></label><input type="number" min="1" max="500" data-key="min_model_centers"></div>
+    <div class="field"><label>raze maxime păstrate</label><input type="number" min="5" max="500" data-key="max_rays"></div>
+    <div class="field"><label>raze per estimare intersecție</label><input type="number" min="2" max="20" data-key="intersection_ray_count"></div>
+    <div class="field"><label>unghi minim între raze (°)</label><input type="number" step="0.5" min="0" max="45" data-key="minimum_intersection_angle_degrees"></div>
+    <div class="field"><label>intersecții stocate max</label><input type="number" min="50" max="5000" data-key="max_stored_intersections"></div>
+    <div class="field"><label>fereastră medie centru ochi</label><input type="number" min="5" max="1000" data-key="model_center_average_window"></div>
+    <div class="field"><label>netezire cursor scenă<small>0.05-1.0</small></label><input type="number" step="0.05" min="0.05" max="1" data-key="smoothing"></div>
+  </section>
+
+  <section class="card">
+    <h2>Detecție clipit</h2>
+    <div class="field"><label>durată min. clipit (ms)</label><input type="number" min="10" max="500" data-key="blink_min_ms"></div>
+    <div class="field"><label>durată max. clipit (ms)</label><input type="number" min="50" max="2000" data-key="blink_max_ms"></div>
+    <div class="field"><label>fereastră triplu-clipit (ms)</label><input type="number" min="300" max="5000" data-key="blink_window_ms"></div>
+    <div class="field"><label>întârziere după reset (s)<small>înainte ca gesturile să se armeze</small></label><input type="number" min="0" max="60" data-key="blink_warmup_s"></div>
+  </section>
+
+  <section class="card">
+    <h2>Alte comenzi</h2>
+    <div class="row">
+      <button onclick="send('reset')">reset model tracking</button>
+    </div>
+    <div class="row">
+      <button onclick="send('calib_clear')">șterge calibrarea</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Alimentare Pi</h2>
+    <p style="color:var(--muted);margin-top:0">Necesită drepturi sudo NOPASSWD configurate (vezi README) pentru systemctl poweroff/reboot/restart.</p>
+    <div class="row">
+      <button onclick="powerAction('restart_service')">restart tracker</button>
+    </div>
+    <div class="row">
+      <button class="danger" onclick="powerAction('reboot')">reboot Pi</button>
+    </div>
+    <div class="row">
+      <button class="danger" onclick="powerAction('poweroff')">oprește Pi</button>
+    </div>
+  </section>
+
+</main>
+
+<script>
+"use strict";
+
+function log(msg) { document.getElementById("log").textContent = msg || ""; }
+
+function send(action, extra) {
+  var body = Object.assign({ action: action }, extra || {});
+  return fetch("/api/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  }).then(function (r) { return r.json(); }).then(function (data) {
+    log(data.error ? data.error : (data.message || "ok"));
+    return data;
+  }).catch(function (err) { log(String(err)); throw err; });
+}
+
+function powerAction(action) {
+  var labels = {
+    restart_service: "Repornești serviciul de tracking acum?",
+    reboot: "Repornești tot Raspberry Pi-ul acum? Streamurile se întrerup câteva zeci de secunde.",
+    poweroff: "OPREȘTI complet Raspberry Pi-ul? Va trebui să-l repornești manual de la alimentare."
+  };
+  if (!confirm(labels[action])) return;
+  send(action);
+}
+
+function fillForm(cfg) {
+  document.querySelectorAll("[data-key]").forEach(function (el) {
+    var key = el.dataset.key;
+    if (!(key in cfg)) return;
+    if (el.type === "checkbox") el.checked = !!cfg[key];
+    else el.value = cfg[key];
+  });
+}
+
+function applyAll() {
+  var values = {};
+  document.querySelectorAll("[data-key]").forEach(function (el) {
+    var key = el.dataset.key;
+    if (el.type === "checkbox") values[key] = el.checked;
+    else if (el.tagName === "SELECT") values[key] = parseInt(el.value, 10);
+    else values[key] = parseFloat(el.value);
+  });
+  send("set", { values: values }).then(function (data) {
+    var msg = document.getElementById("applyMsg");
+    if (data.ok) {
+      msg.style.color = "var(--accent)";
+      msg.textContent = "aplicat";
+      setTimeout(function () { msg.textContent = ""; }, 2000);
+    } else {
+      msg.style.color = "var(--bad)";
+      msg.textContent = data.error || "eroare";
+    }
+  });
+}
+
+function renderState(s) {
+  document.getElementById("stOk").textContent = s.ok ? "da" : "nu";
+  document.getElementById("stConf").textContent = (s.confidence * 100).toFixed(0) + "%";
+  document.getElementById("stArmed").textContent = s.armed ? "da" : "nu (warmup)";
+  document.getElementById("stBlinking").textContent = s.blinking ? "DA" : "nu";
+  document.getElementById("stBlinkCount").textContent = s.blink_count_recent;
+  document.getElementById("stTriple").textContent =
+    s.last_triple_blink_seconds_ago === null ? "niciodată" : (s.last_triple_blink_seconds_ago.toFixed(1) + "s în urmă");
+}
+
+function connectEvents() {
+  var source = new EventSource("/events");
+  source.onmessage = function (event) {
+    try { renderState(JSON.parse(event.data)); } catch (err) { /* partial frame */ }
+  };
+  source.onerror = function () { source.close(); setTimeout(connectEvents, 1500); };
+}
+
+fetch("/api/config").then(function (r) { return r.json(); }).then(fillForm);
+connectEvents();
+</script>
+</body>
+</html>

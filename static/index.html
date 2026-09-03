@@ -90,7 +90,9 @@
   <h1>Glaze</h1>
   <span class="sub"><span class="dot" id="dotEye"></span> eye <span id="fpsEye">-</span></span>
   <span class="sub"><span class="dot" id="dotScene"></span> scene <span id="fpsScene">-</span></span>
+  <span class="sub" id="blinkStatus"></span>
   <span class="sub">port of JEOresearch/EyeTracker for Raspberry Pi</span>
+  <a href="/settings" class="sub" style="margin-left:auto;color:var(--accent);text-decoration:none">settings &amp; power &rarr;</a>
 </header>
 
 <main>
@@ -251,6 +253,15 @@ function render(s) {
   var cal = s.calibration;
   document.getElementById("calStatus").textContent =
     cal.points + " pts" + (cal.ready ? (", rms " + (cal.rms_error * 100).toFixed(1) + "%") : ", not fitted");
+
+  var blinkEl = document.getElementById("blinkStatus");
+  if (!s.armed) {
+    blinkEl.textContent = "gestures: warming up";
+  } else if (s.last_triple_blink_seconds_ago !== null && s.last_triple_blink_seconds_ago < 3) {
+    blinkEl.textContent = "TRIPLE BLINK!";
+  } else {
+    blinkEl.textContent = "blinks (2s): " + s.blink_count_recent + (s.blinking ? " (closed)" : "");
+  }
 
   if (cursorOn && s.scene_point) {
     var cursor = document.getElementById("gazeCursor");
