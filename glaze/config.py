@@ -151,6 +151,50 @@ class Config:
     # Romanian voice (or vice versa) and it comes out mangled.
     vision_language: str = "Romanian"
 
+    # ---- conversation (AAC slot filling) ----------------------------------
+    # The whole flow: trigger -> collect a few gaze-marked photos -> one AI
+    # call that fills four pillars (person / action / object / emotion) with
+    # confidences -> spoken yes-no questions for whatever came back unsure ->
+    # final sentence out loud.
+    conversation_enabled: bool = True
+    # Hold the scene cursor still this long to capture one photo.
+    capture_dwell_ms: float = 1000.0
+    # How far the cursor must move (fraction of the frame) before it counts as
+    # a different target - stops one long stare becoming three photos.
+    capture_move_fraction: float = 0.15
+    max_captures: int = 3
+    # Give up collecting and analyse what we have after this long.
+    capture_window_s: float = 25.0
+
+    # Answering: look up = yes, look down = no, held for answer_dwell_ms.
+    answer_dwell_ms: float = 500.0
+    # No answer within this long counts as "no", move to the next option.
+    answer_timeout_ms: float = 4000.0
+    # Vertical gaze offset (in eye-radius units) that counts as up/down.
+    answer_zone_threshold: float = 0.30
+    # A pillar at or above this confidence is accepted without asking.
+    pillar_confidence_threshold: float = 0.90
+    max_options_per_pillar: int = 4
+    # Hold a long look left/right to open the needs / pain menus, which need
+    # no camera and no AI - they matter most when nothing is in frame.
+    menu_dwell_ms: float = 1200.0
+    # Deliberately further out than answer_zone_threshold: glancing aside at
+    # something must not open a menu, only a pointed look does.
+    menu_zone_threshold: float = 0.55
+    # And even then, confirm before starting to talk in the person's ear -
+    # a false trigger here interrupts whatever they were actually doing.
+    menu_confirm: bool = True
+    # After a menu ends or is declined, ignore that direction this long so a
+    # gaze still parked there does not immediately re-open it.
+    menu_cooldown_s: float = 6.0
+
+    # Questions go to the earpiece, the final sentence to the loudspeaker.
+    # Empty = use tts_audio_device for both (fine with a single speaker).
+    tts_question_device: str = ""
+
+    conversation_log_size: int = 400
+    gaze_log_interval_s: float = 0.5
+
     # ---- text-to-speech ---------------------------------------------------
     tts_enabled: bool = False
     # espeak-ng voice code - "ro" for Romanian, "en" for English, etc.

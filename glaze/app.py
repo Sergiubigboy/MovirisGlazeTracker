@@ -28,6 +28,8 @@ from . import vision
 from . import webserver
 from .calibration import Calibration, Smoother
 from .config import Config
+from .conversation import ConversationEngine
+from .eventlog import EventLog
 from .gestures import GestureEngine
 from .tracker_core import EyeTracker
 
@@ -86,6 +88,9 @@ class GlazeApp:
         self.gestures = GestureEngine(cfg.gestures_path,
                                       enter=cfg.gaze_zone_enter,
                                       exit_=cfg.gaze_zone_exit)
+        self.log = EventLog(cfg.conversation_log_size)
+        self.conversation = ConversationEngine(cfg, self, self.log)
+        self._last_gaze_log = 0.0
 
         self.channels = {"eye": JpegChannel("eye"), "scene": JpegChannel("scene")}
         self.stopping = False
@@ -216,7 +221,24 @@ class GlazeApp:
             if result.triple_blink:
                 self._last_triple_blink_at = time.time()
 
-            for gesture in self.gestures.update(result):
+            with self._state_lock:
+                scene_point = self._scene_point
+
+            self._log_gaze(result, scene_point)
+
+            if cfg.conversation_enabled:
+                self.conversation.update(result, scene_point)
+
+            fired = self.gestures.update(result)
+            busy = self.conversation.state != "IDLE"
+            for gesture in fired:
+                # While a conversation is running the eyes are answering
+                # questions, so the same up/down/blink movements must not also
+                # fire unrelated gestures underneath it.
+                if busy:
+                    self.log.add("state", "gesture %r ignored, conversation busy"
+                                 % gesture.get("name"))
+                    continue
                 self._dispatch_gesture(gesture)
 
             if watching:
@@ -318,6 +340,31 @@ class GlazeApp:
             except OSError:
                 pass
 
+    def _log_gaze(self, result, scene_point):
+        """Throttled gaze samples - useful history without flooding the log."""
+        now = time.time()
+        if now - self._last_gaze_log < self.cfg.gaze_log_interval_s:
+            return
+        self._last_gaze_log = now
+        self.log.add("gaze", "pupil %s" % ("tracked" if result.ok else "lost"), {
+            "normalized": ([round(v, 3) for v in result.gaze_normalized]
+                           if result.gaze_normalized else None),
+            "scene_point": ([round(v, 3) for v in scene_point]
+                            if scene_point else None),
+            "confidence": round(result.confidence, 3),
+            "blinking": result.blinking,
+        })
+
+    def scene_frame(self):
+        """Newest scene frame, oriented - used by the conversation engine."""
+        if self.scene_camera is None:
+            return None
+        frame = self.scene_camera.latest()
+        if frame is None:
+            return None
+        return cameras.orient(frame, self.cfg.flip_scene_vertical,
+                              self.cfg.flip_scene_horizontal)
+
     # -- gesture actions -------------------------------------------------
     def _dispatch_gesture(self, gesture):
         """Run the action bound to a gesture that just fired."""
@@ -331,6 +378,9 @@ class GlazeApp:
             return
         if action == "toggle_sphere":
             self.tracker.toggle_sphere_adjustment()
+            return
+        if action == "start_conversation":
+            self.conversation.start("triple_blink")
             return
         if action == "save_calibration":
             self.calibration.save()
@@ -474,6 +524,22 @@ class GlazeApp:
             "tts_rate": cfg.tts_rate,
             "tts_audio_device": cfg.tts_audio_device,
             "tts_device_detected": speech.detect_output_device(),
+            "tts_question_device": cfg.tts_question_device,
+            "conversation_enabled": cfg.conversation_enabled,
+            "capture_dwell_ms": cfg.capture_dwell_ms,
+            "capture_move_fraction": cfg.capture_move_fraction,
+            "max_captures": cfg.max_captures,
+            "capture_window_s": cfg.capture_window_s,
+            "answer_dwell_ms": cfg.answer_dwell_ms,
+            "answer_timeout_ms": cfg.answer_timeout_ms,
+            "answer_zone_threshold": cfg.answer_zone_threshold,
+            "pillar_confidence_threshold": cfg.pillar_confidence_threshold,
+            "max_options_per_pillar": cfg.max_options_per_pillar,
+            "menu_dwell_ms": cfg.menu_dwell_ms,
+            "menu_zone_threshold": cfg.menu_zone_threshold,
+            "menu_confirm": cfg.menu_confirm,
+            "menu_cooldown_s": cfg.menu_cooldown_s,
+            "gaze_log_interval_s": cfg.gaze_log_interval_s,
         }
 
     def state(self):
@@ -522,6 +588,7 @@ class GlazeApp:
         if payload["vision"] is not None:
             payload["vision"]["seconds_ago"] = round(time.time() - last_vision["at"], 1)
         payload["vision_busy"] = self._vision_busy
+        payload["conversation"] = self.conversation.state_dict()
         return payload
 
     def command(self, action, payload):
@@ -587,6 +654,16 @@ class GlazeApp:
                 return {"ok": False, "error": str(exc)}
             return {"ok": True, "gestures": saved}
 
+        if action == "conversation_start":
+            return self.conversation.start(payload.get("trigger") or "triple_blink")
+
+        if action == "conversation_cancel":
+            return self.conversation.cancel()
+
+        if action == "log_clear":
+            self.log.clear()
+            return {"ok": True}
+
         if action == "tts_test":
             text = str(payload.get("text") or "Salut, te aud bine?")
             started = speech.speak(text, device=cfg.tts_audio_device or None,
@@ -628,7 +705,8 @@ class GlazeApp:
 
         booleans = ("flip_eye_vertical", "flip_eye_horizontal", "flip_scene_vertical",
                     "flip_scene_horizontal", "draw_overlay", "roi_mode", "write_gaze_file",
-                    "tts_enabled", "vision_enabled")
+                    "tts_enabled", "vision_enabled", "conversation_enabled",
+                    "menu_confirm")
         for key in booleans:
             if key in values:
                 setattr(cfg, key, bool(values[key]))
@@ -667,6 +745,19 @@ class GlazeApp:
             "gaze_zone_enter": (float, 0.05, 2.0),
             "gaze_zone_exit": (float, 0.0, 1.0),
             "tts_rate": (int, 80, 400),
+            "capture_dwell_ms": (float, 200.0, 5000.0),
+            "capture_move_fraction": (float, 0.02, 1.0),
+            "max_captures": (int, 1, 6),
+            "capture_window_s": (float, 3.0, 120.0),
+            "answer_dwell_ms": (float, 100.0, 3000.0),
+            "answer_timeout_ms": (float, 500.0, 20000.0),
+            "answer_zone_threshold": (float, 0.05, 2.0),
+            "pillar_confidence_threshold": (float, 0.1, 1.0),
+            "max_options_per_pillar": (int, 1, 8),
+            "menu_dwell_ms": (float, 300.0, 5000.0),
+            "menu_zone_threshold": (float, 0.1, 2.0),
+            "menu_cooldown_s": (float, 0.0, 60.0),
+            "gaze_log_interval_s": (float, 0.1, 10.0),
         }
         for key, (cast, low, high) in numbers.items():
             if key in values:
@@ -684,7 +775,7 @@ class GlazeApp:
             applied["vision_model"] = name
 
         for key, max_len in (("vision_language", 40), ("tts_voice", 10),
-                             ("tts_audio_device", 60)):
+                             ("tts_audio_device", 60), ("tts_question_device", 60)):
             if key in values:
                 text = str(values[key]).strip()
                 if len(text) > max_len:

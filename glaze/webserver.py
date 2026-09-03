@@ -24,6 +24,7 @@ import os
 import socketserver
 import threading
 import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
@@ -68,6 +69,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._serve_static_page("settings.html")
         if path in ("/gestures", "/gestures.html"):
             return self._serve_static_page("gestures.html")
+        if path in ("/log", "/log.html"):
+            return self._serve_static_page("log.html")
         if path == "/eye.mjpg":
             return self._serve_mjpeg("eye")
         if path == "/scene.mjpg":
@@ -82,6 +85,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"devices": self.hub.list_cameras()})
         if path == "/api/calibration":
             return self._send_json(self.hub.calibration.to_dict())
+        if path == "/api/log":
+            query = urllib.parse.parse_qs(self.path.split("?", 1)[1]
+                                          if "?" in self.path else "")
+            try:
+                since = int((query.get("since") or ["0"])[0])
+            except ValueError:
+                since = 0
+            categories = (query.get("categories") or [""])[0]
+            entries = self.hub.log.since(
+                since, categories=[c for c in categories.split(",") if c] or None)
+            return self._send_json({"entries": entries})
         if path == "/gaze_vector.txt":
             return self._send_text(self.hub.gaze_vector_line())
         if path == "/favicon.ico":

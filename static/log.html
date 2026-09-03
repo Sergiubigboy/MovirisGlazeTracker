@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glaze - log</title>
+<style>
+  :root {
+    --bg:#0d1117; --panel:#161b22; --line:#262d36; --text:#e6edf3;
+    --muted:#8b949e; --accent:#4ade80; --warn:#f0b429; --bad:#f85149;
+    --blue:#58a6ff; --purple:#bc8cff;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  header { display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+           padding:12px 20px; border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:15px; letter-spacing:.08em; text-transform:uppercase; }
+  header a { color:var(--accent); text-decoration:none; }
+  header .spacer { margin-left:auto; }
+
+  .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center;
+         padding:10px 20px; border-bottom:1px solid var(--line); background:var(--panel); }
+  button { font:inherit; color:var(--text); background:#21262d; border:1px solid var(--line);
+           border-radius:6px; padding:5px 10px; cursor:pointer; }
+  button:hover { border-color:#3d444d; }
+  button.on { border-color:var(--accent); color:var(--accent); }
+  label.chk { display:flex; align-items:center; gap:5px; color:var(--muted); }
+
+  .status { padding:12px 20px; display:grid;
+            grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px;
+            border-bottom:1px solid var(--line); }
+  .stat { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .stat .k { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.06em; }
+  .stat .v { font-size:15px; margin-top:3px; word-break:break-word; }
+
+  #rows { padding:8px 20px 40px; }
+  .row { display:grid; grid-template-columns:76px 82px 1fr; gap:10px;
+         padding:4px 0; border-bottom:1px solid #1b2029; align-items:start; }
+  .t { color:var(--muted); }
+  .c { font-size:11px; text-transform:uppercase; letter-spacing:.05em; padding-top:2px; }
+  .c.gaze{color:#4b5563} .c.capture{color:var(--blue)} .c.ai{color:var(--purple)}
+  .c.pillar{color:var(--warn)} .c.question{color:var(--accent)} .c.answer{color:var(--accent)}
+  .c.speech{color:#f472b6} .c.state{color:var(--muted)} .c.error{color:var(--bad)}
+  .m { white-space:pre-wrap; word-break:break-word; }
+  .d { color:var(--muted); font-size:11px; margin-top:2px; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Glaze / log</h1>
+  <span id="conn" style="color:var(--muted)"></span>
+  <span class="spacer"></span>
+  <a href="/">dashboard</a> &nbsp;<a href="/gestures">gesturi</a> &nbsp;<a href="/settings">settings</a>
+</header>
+
+<div class="bar">
+  <button class="on" id="btnFollow" onclick="toggleFollow()">urmărește</button>
+  <button onclick="startConv()">pornește conversație</button>
+  <button onclick="cancelConv()">oprește</button>
+  <button onclick="clearLog()">golește log</button>
+  <span style="color:var(--muted)">|</span>
+  <span id="filters"></span>
+</div>
+
+<div class="status">
+  <div class="stat"><div class="k">stare</div><div class="v" id="sState">-</div></div>
+  <div class="stat"><div class="k">poze strânse</div><div class="v" id="sShots">-</div></div>
+  <div class="stat"><div class="k">întrebare curentă</div><div class="v" id="sQ">-</div></div>
+  <div class="stat"><div class="k">zonă privire</div><div class="v" id="sZone">-</div></div>
+  <div class="stat"><div class="k">ultima propoziție</div><div class="v" id="sSentence">-</div></div>
+</div>
+
+<div id="rows"></div>
+
+<script>
+"use strict";
+
+var CATS = ["gaze","capture","ai","pillar","question","answer","speech","state","error"];
+var hidden = { gaze: false };
+var follow = true;
+var lastId = 0;
+
+function buildFilters() {
+  document.getElementById("filters").innerHTML = CATS.map(function (c) {
+    return '<label class="chk"><input type="checkbox" ' + (hidden[c] ? "" : "checked") +
+           ' onchange="toggleCat(\'' + c + '\', this.checked)"> ' + c + "</label>";
+  }).join(" ");
+}
+function toggleCat(cat, on) { hidden[cat] = !on; }
+function toggleFollow() {
+  follow = !follow;
+  document.getElementById("btnFollow").className = follow ? "on" : "";
+}
+
+function post(action, extra) {
+  return fetch("/api/command", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(Object.assign({ action: action }, extra || {}))
+  }).then(function (r) { return r.json(); });
+}
+function startConv() { post("conversation_start"); }
+function cancelConv() { post("conversation_cancel"); }
+function clearLog() {
+  post("log_clear").then(function () {
+    lastId = 0;
+    document.getElementById("rows").innerHTML = "";
+  });
+}
+
+function stamp(at) {
+  var d = new Date(at * 1000);
+  return d.toLocaleTimeString("ro-RO", { hour12: false }) +
+         "." + String(d.getMilliseconds()).padStart(3, "0");
+}
+
+function appendEntries(entries) {
+  var host = document.getElementById("rows");
+  entries.forEach(function (e) {
+    lastId = Math.max(lastId, e.id);
+    if (hidden[e.category]) return;
+
+    var row = document.createElement("div");
+    row.className = "row";
+    var detail = "";
+    if (e.data !== null && e.data !== undefined) {
+      try { detail = JSON.stringify(e.data); } catch (err) { detail = String(e.data); }
+      if (detail === "{}" || detail === "null") detail = "";
+    }
+    row.innerHTML =
+      '<span class="t">' + stamp(e.at) + "</span>" +
+      '<span class="c ' + e.category + '">' + e.category + "</span>" +
+      '<span><span class="m">' + escapeHtml(e.message) + "</span>" +
+      (detail ? '<span class="d">' + escapeHtml(detail) + "</span>" : "") + "</span>";
+    host.appendChild(row);
+  });
+
+  // Keep the DOM from growing without bound during a long session.
+  while (host.children.length > 500) host.removeChild(host.firstChild);
+  if (follow) window.scrollTo(0, document.body.scrollHeight);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+  });
+}
+
+function pollLog() {
+  fetch("/api/log?since=" + lastId)
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      document.getElementById("conn").textContent = "";
+      if (data.entries && data.entries.length) appendEntries(data.entries);
+    })
+    .catch(function () { document.getElementById("conn").textContent = "deconectat"; })
+    .finally(function () { setTimeout(pollLog, 500); });
+}
+
+function connectEvents() {
+  var source = new EventSource("/events");
+  source.onmessage = function (e) {
+    try {
+      var s = JSON.parse(e.data);
+      var c = s.conversation || {};
+      document.getElementById("sState").textContent = c.state || "-";
+      document.getElementById("sShots").textContent = c.captures !== undefined ? c.captures : "-";
+      document.getElementById("sQ").textContent = c.question || "-";
+      document.getElementById("sZone").textContent = c.zone || "-";
+      document.getElementById("sSentence").textContent = c.last_sentence || "-";
+    } catch (err) { /* partial frame */ }
+  };
+  source.onerror = function () { source.close(); setTimeout(connectEvents, 1500); };
+}
+
+buildFilters();
+pollLog();
+connectEvents();
+</script>
+</body>
+</html>

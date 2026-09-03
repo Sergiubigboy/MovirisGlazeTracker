@@ -68,7 +68,7 @@
 <header>
   <h1>Glaze / settings</h1>
   <span id="log"></span>
-  <a href="/">&larr; dashboard</a> &nbsp;<a href="/gestures" style="margin-left:0">gesturi</a>
+  <a href="/">&larr; dashboard</a> &nbsp;<a href="/gestures" style="margin-left:0">gesturi</a> &nbsp;<a href="/log" style="margin-left:0">log</a>
 </header>
 
 <div id="applyBar">
@@ -176,6 +176,35 @@
     <div class="field" style="margin-top:8px"><label>dispozitiv auto-detectat</label><b id="ttsDetected" style="color:var(--muted)">-</b></div>
     <div class="row" style="margin-top:10px">
       <button onclick="testVoice()">testează vocea</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Conversație (4 piloni)</h2>
+    <p style="color:var(--muted);margin-top:0;font-size:11px">
+      Triplu-clipit → strânge poze prin fixarea privirii → un apel AI →
+      întrebări în cască (sus = da, jos = nu) → propoziția pe difuzor.
+    </p>
+    <div class="field"><label>activată</label><input type="checkbox" data-key="conversation_enabled"></div>
+    <div class="field"><label>fixare pentru poză (ms)</label><input type="number" min="200" max="5000" data-key="capture_dwell_ms"></div>
+    <div class="field"><label>mișcare minimă între poze<small>fracție din cadru</small></label><input type="number" step="0.01" min="0.02" max="1" data-key="capture_move_fraction"></div>
+    <div class="field"><label>poze maxime</label><input type="number" min="1" max="6" data-key="max_captures"></div>
+    <div class="field"><label>timp maxim de strâns poze (s)</label><input type="number" min="3" max="120" data-key="capture_window_s"></div>
+    <div class="field"><label>dwell răspuns sus/jos (ms)</label><input type="number" min="100" max="3000" data-key="answer_dwell_ms"></div>
+    <div class="field"><label>timeout răspuns (ms)<small>fără răspuns = nu</small></label><input type="number" min="500" max="20000" data-key="answer_timeout_ms"></div>
+    <div class="field"><label>prag sus/jos<small>cât de mult să ridice privirea</small></label><input type="number" step="0.05" min="0.05" max="2" data-key="answer_zone_threshold"></div>
+    <div class="field"><label>prag încredere pilon<small>sub el întreabă</small></label><input type="number" step="0.05" min="0.1" max="1" data-key="pillar_confidence_threshold"></div>
+    <div class="field"><label>opțiuni maxime per pilon</label><input type="number" min="1" max="8" data-key="max_options_per_pillar"></div>
+    <div class="field"><label>dwell meniu stânga/dreapta (ms)<small>nevoi / dureri</small></label><input type="number" min="300" max="5000" data-key="menu_dwell_ms"></div>
+    <div class="field"><label>prag privire meniu<small>mai extrem = mai greu de declanșat din greșeală</small></label><input type="number" step="0.05" min="0.1" max="2" data-key="menu_zone_threshold"></div>
+    <div class="field"><label>confirmă înainte de meniu</label><input type="checkbox" data-key="menu_confirm"></div>
+    <div class="field"><label>pauză după meniu (s)</label><input type="number" step="0.5" min="0" max="60" data-key="menu_cooldown_s"></div>
+    <div class="field"><label>interval log privire (s)</label><input type="number" step="0.1" min="0.1" max="10" data-key="gaze_log_interval_s"></div>
+    <div class="field"><label>dispozitiv cască<small>gol = același ca difuzorul</small></label></div>
+    <input type="text" data-key="tts_question_device" placeholder="plughw:CARD=1,DEV=0"
+           style="width:100%;background:#21262d;border:1px solid var(--line);border-radius:6px;color:var(--text);padding:6px 8px;font:inherit">
+    <div class="row" style="margin-top:10px">
+      <button onclick="send('conversation_start')">pornește conversația acum</button>
     </div>
   </section>
 

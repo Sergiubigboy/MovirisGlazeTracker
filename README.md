@@ -462,7 +462,77 @@ Raspberry).
 
 ---
 
-## 10. Probleme frecvente
+## 10. Conversația pe 4 piloni (sistemul AAC)
+
+Sistemul complet: din ce te uiți, construiește o propoziție și o rostește tare.
+Se bazează pe ideea că aproape orice mesaj se reduce la patru piloni —
+**persoană, acțiune, obiect, emoție** — iar ce nu e sigur se confirmă cu
+întrebări binare în cască.
+
+### Fluxul
+
+```
+triplu-clipit
+   ↓
+CAPTURING   fixezi privirea ~1s pe ceva → poză cu cercul tău de privire
+            (max 3 poze, sau până expiră fereastra)
+   ↓
+ANALYZING   UN SINGUR apel AI cu toate pozele → cei 4 piloni + încredere
+   ↓
+ASKING      fiecare pilon sub prag → opțiunile lui, pe rând, în cască
+            privire SUS ținută 500ms = DA · JOS = NU · fără răspuns = NU
+   ↓
+SPEAKING    propoziția finală, pe difuzorul mare
+```
+
+Emoția **nu se întreabă niciodată** — e dedusă de model, cum ai cerut.
+Pilonii se întreabă în ordinea persoană → acțiune → obiect.
+
+### Maxim două apeluri AI
+
+Primul apel cere și `propozitie_probabila` pentru combinația cea mai probabilă.
+Dacă tot ce ai confirmat coincide cu ea, **nu se mai face al doilea apel** —
+propoziția e deja acolo. Al doilea apel (compunerea frazei) pleacă doar dacă
+ai schimbat ceva prin răspunsuri.
+
+Verificat pe simulare: toți pilonii siguri → 1 apel; un pilon corectat prin
+răspuns → 2 apeluri.
+
+### Meniurile de nevoi și dureri — fără cameră, fără internet
+
+Privire lungă (implicit 1.2s) în **stânga** → nevoi fiziologice
+(sete, foame, somn, toaletă). În **dreapta** → dureri (cap, burtă, spate,
+frig, cald).
+
+Astea nu ating nici camera, nici modelul — sunt liste fixe cu fraze scrise în
+[`glaze/phrases.py`](glaze/phrases.py). Intenționat: exact când e ceva urgent
+sau nu e nimic relevant în cadru, sistemul trebuie să meargă și cu WiFi-ul
+căzut. Dacă rețeaua pică în mijlocul unei conversații normale, propoziția se
+construiește tot local, dintr-un șablon, în loc ca dispozitivul să amuțească.
+
+### Log-ul (`/log`)
+
+Tot ce se întâmplă în spate, live: poziția ochiului, fiecare poză prinsă, ce
+s-a trimis la model, ce a răspuns cu tot cu încrederi, fiecare întrebare pusă
+și fiecare DA/NU cu câte milisecunde ai ținut privirea. Filtrezi pe categorii
+(privirea e cea mai zgomotoasă, o poți ascunde).
+
+Când propoziția iese greșit, aici vezi **unde** s-a rupt: s-a pierdut pupila,
+a ghicit modelul prost, sau un DA a fost citit ca NU?
+
+### Reglaje
+
+Toate în `/settings` → "Conversație": timpii de fixare, câte poze, dwell-ul
+pentru DA/NU, timeout-ul, pragul de încredere de la care întreabă, câte
+opțiuni per pilon, dwell-ul pentru meniuri.
+
+Cască separată de difuzor: pune `tts_question_device` (întrebările, doar
+pentru tine) diferit de `tts_audio_device` (propoziția finală, pentru cameră).
+Cu o singură boxă, lasă-l gol și merg amândouă pe același dispozitiv.
+
+---
+
+## 11. Probleme frecvente
 
 **„could not open USB camera index 0"** — vezi ce index are:
 `python3 tools/list_cameras.py`. Camera CSI ocupă și ea `/dev/video0` uneori,
@@ -488,7 +558,7 @@ toate direcțiile; `rays` trebuie să crească spre 100.
 
 ---
 
-## 11. Structura proiectului
+## 12. Structura proiectului
 
 ```
 glaze/
@@ -497,6 +567,9 @@ glaze/
   cameras.py        USB/V4L2, CSI/picamera2, fișier video — fiecare pe threadul lui
   calibration.py    mapare privire → ecran/scenă (least squares) + netezire
   gestures.py       privire+clipit → simboluri → tipare → acțiuni
+  conversation.py   mașina de stări AAC: poze → piloni → întrebări → propoziție
+  phrases.py        meniuri nevoi/dureri + șabloane locale (merg fără internet)
+  eventlog.py       jurnalul intern citit de pagina /log
   vision.py         poză + gaze point → Gemini → obiecte cu probabilități
   speech.py         text-to-speech prin espeak-ng, pe un dispozitiv audio anume
   webserver.py      server HTTP din stdlib: MJPEG + SSE + API
@@ -504,6 +577,7 @@ glaze/
 static/index.html    dashboard
 static/settings.html toți parametrii, live, plus poweroff/reboot
 static/gestures.html construiește tipare de gesturi + „la ce mă uit?"
+static/log.html      tot ce se întâmplă în spate, live
 tools/bench.py        benchmark pe fișier video
 tools/list_cameras.py
 tools/list_audio.py   ce carduri ALSA vede Pi-ul

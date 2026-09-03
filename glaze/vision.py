@@ -141,6 +141,163 @@ def ask_gemini(frame, model="gemini-3.5-flash-lite", api_key=None,
     return {"ok": True, "objects": normalised, "scene": str(answer.get("scene", ""))[:200]}
 
 
+PILLARS_PROMPT = """You are the perception stage of a speech aid for a person with
+total paralysis who can only move their eyes. They cannot type, point or
+speak. Everything they mean has to be reconstructed from what they looked at.
+
+You are given {count} photo(s) taken from a camera on their glasses, in the
+order they looked at things. In each photo a yellow circle marks exactly where
+they were looking; the circle's radius is the tracker's uncertainty, so the
+intended thing is inside or very near it.
+
+Reconstruct the intended message as four pillars:
+  persoana  - who they are addressing (a person visible in a photo, or "eu"
+              when they are talking about themselves)
+  actiune   - what they want done, as a plain infinitive ("a aduce", "a lua",
+              "a deschide", "a stinge")
+  obiect    - the thing involved
+  emotie    - their likely emotional tone. NEVER ask about this one, infer it;
+              default to "neutru" unless something clearly suggests otherwise.
+
+For each pillar give a confidence from 0 to 1, honestly - a low number is far
+more useful than a confident guess, because anything below {threshold} gets
+read out loud as a yes/no question and a wrong guess wastes the person's time
+and effort. Also give up to {max_options} alternative candidates per pillar,
+best first, as single words or very short phrases that will be spoken aloud
+one at a time.
+
+Respond with JSON only, exactly this shape:
+{{"piloni": {{
+   "persoana": {{"valoare": "...", "incredere": 0.0, "optiuni": ["...", "..."]}},
+   "actiune":  {{"valoare": "...", "incredere": 0.0, "optiuni": ["...", "..."]}},
+   "obiect":   {{"valoare": "...", "incredere": 0.0, "optiuni": ["...", "..."]}},
+   "emotie":   {{"valoare": "neutru", "incredere": 0.0, "optiuni": []}}
+ }},
+ "propozitie_probabila": "<the full sentence if every top value is right>",
+ "scena": "<5 word description of what is around them>"}}
+
+Write every value, option and sentence in {language}. The sentence must sound
+like the person speaking in the first person, natural and polite, not a
+description of the photo."""
+
+
+COMPOSE_PROMPT = """You are the speech stage of a communication aid for a person with
+total paralysis. These four pillars have been confirmed by the person
+themselves, one yes/no question at a time - they are correct, do not
+second-guess or change them:
+
+{pillars}
+
+Write the single sentence they want said out loud, in {language}, in the first
+person, natural and polite. It will be spoken by a loudspeaker to someone in
+the room, so keep it short and immediately understandable. Reply with JSON
+only: {{"propozitie": "..."}}"""
+
+
+def _post_gemini(parts, model, key, timeout):
+    """Shared HTTP plumbing for the Gemini generateContent endpoint."""
+    body = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {"responseMimeType": "application/json",
+                             "temperature": 0.0},
+    }
+    request = urllib.request.Request(
+        (ENDPOINT % model) + "?key=" + urllib.parse.quote(key),
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:300]
+        return None, "HTTP %s: %s" % (exc.code, detail)
+    except (urllib.error.URLError, OSError) as exc:
+        return None, "network: %s" % exc
+    except ValueError as exc:
+        return None, "bad response: %s" % exc
+
+    try:
+        text = payload["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError, TypeError):
+        return None, "unexpected response shape"
+
+    try:
+        return json.loads(text), None
+    except ValueError:
+        return None, "model did not return JSON: %s" % text[:200]
+
+
+def _image_part(frame, jpeg_quality=80):
+    ok, buffer = cv2.imencode(".jpg", frame,
+                              [int(cv2.IMWRITE_JPEG_QUALITY), int(jpeg_quality)])
+    if not ok:
+        return None
+    return {"inline_data": {"mime_type": "image/jpeg",
+                            "data": base64.b64encode(buffer.tobytes()).decode("ascii")}}
+
+
+def analyze_pillars(frames, model="gemini-3.5-flash-lite", api_key=None,
+                    language="Romanian", threshold=0.9, max_options=4,
+                    jpeg_quality=80, timeout=30.0):
+    """One call, several gaze-marked photos -> the four pillars with confidences."""
+    key = load_api_key(api_key)
+    if not key:
+        return {"ok": False, "error": "no API key: set GEMINI_API_KEY or create gemini_key.txt"}
+    if not frames:
+        return {"ok": False, "error": "no photos captured"}
+
+    parts = [{"text": PILLARS_PROMPT.format(
+        count=len(frames), language=language, threshold=threshold,
+        max_options=max_options)}]
+    for frame in frames:
+        part = _image_part(frame, jpeg_quality)
+        if part is None:
+            return {"ok": False, "error": "could not encode a photo"}
+        parts.append(part)
+
+    answer, error = _post_gemini(parts, model, key, timeout)
+    if error:
+        return {"ok": False, "error": error}
+
+    pillars = answer.get("piloni") or {}
+    cleaned = {}
+    for name in ("persoana", "actiune", "obiect", "emotie"):
+        entry = pillars.get(name) or {}
+        try:
+            confidence = float(entry.get("incredere", 0))
+        except (TypeError, ValueError):
+            confidence = 0.0
+        options = [str(o)[:40] for o in (entry.get("optiuni") or [])][:max_options]
+        cleaned[name] = {
+            "valoare": str(entry.get("valoare", ""))[:60],
+            "incredere": round(max(0.0, min(1.0, confidence)), 3),
+            "optiuni": options,
+        }
+
+    return {"ok": True, "piloni": cleaned,
+            "propozitie_probabila": str(answer.get("propozitie_probabila", ""))[:300],
+            "scena": str(answer.get("scena", ""))[:200]}
+
+
+def compose_sentence(pillars, model="gemini-3.5-flash-lite", api_key=None,
+                     language="Romanian", timeout=20.0):
+    """Second (and last) call: confirmed pillars -> the sentence to speak."""
+    key = load_api_key(api_key)
+    if not key:
+        return {"ok": False, "error": "no API key"}
+
+    listing = "\n".join("  %s: %s" % (name, value)
+                        for name, value in pillars.items() if value)
+    parts = [{"text": COMPOSE_PROMPT.format(pillars=listing, language=language)}]
+
+    answer, error = _post_gemini(parts, model, key, timeout)
+    if error:
+        return {"ok": False, "error": error}
+    return {"ok": True, "propozitie": str(answer.get("propozitie", ""))[:300]}
+
+
 def uncertainty_from_calibration(calibration, floor=0.08):
     """Turn the calibration's RMS error into a circle radius (normalised)."""
     error = getattr(calibration, "rms_error", None)
