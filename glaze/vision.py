@@ -72,7 +72,7 @@ def annotate_gaze(frame, point, uncertainty=0.12):
     return marked
 
 
-def ask_gemini(frame, model="gemini-2.5-flash-lite", api_key=None,
+def ask_gemini(frame, model="gemini-3.5-flash-lite", api_key=None,
                jpeg_quality=80, timeout=20.0):
     """Send one annotated frame. Returns a dict with the parsed answer."""
     key = load_api_key(api_key)

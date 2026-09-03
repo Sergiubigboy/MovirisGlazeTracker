@@ -160,6 +160,7 @@ Ce am adăugat ca să respingă genele:
 | `pupil_min_circularity` | Genele și cutele pleoapei sunt alungite, pupila e rotundă |
 | `pupil_max_area_fraction` | Umbre mari de pleoapă care acopereau un sfert din cadru |
 | `pupil_max_jump_fraction` | Pupila nu se teleportează: o detecție slabă care a sărit în cealaltă parte a cadrului e o agățare de gene |
+| `pupil_max_eye_radius_fraction` | Odată ce modelul sferei există, pupila stă **pe** globul ocular. Ceva mai departe de centru decât raza sferei e în afara ochiului — fizic imposibil pentru o pupilă |
 
 Pe clipul de test, rata de `ok` a scăzut de la 1.000 la 0.881 și au apărut 24
 de clipiri detectate în 43s (26/min, plauzibil pentru un om).
@@ -231,9 +232,13 @@ Gemini, care răspunde cu JSON:
  "scene": "birou cu laptop și cană"}
 ```
 
-Implicit folosește `gemini-2.5-flash-lite` (cel mai ieftin model cu vedere).
+Implicit folosește `gemini-3.5-flash-lite` (cel mai ieftin model cu vedere).
 Apelul rulează pe un thread separat, deci o rețea lentă nu blochează niciodată
 bucla de tracking.
+
+**Google retrage periodic nume de modele.** Dacă primești o eroare `404`,
+mesajul de la API îți spune exact ce model să folosești în loc — îl schimbi
+direct în `/settings` → "Model AI viziune", fără să atingi codul.
 
 Cheia API **nu** se pune în config (pagina de setări o poate citi înapoi).
 Pune-o într-una din astea:

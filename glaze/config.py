@@ -87,6 +87,11 @@ class Config:
     # Forget the previous position after this long without a pupil, so
     # re-acquisition anywhere in the frame is allowed after a real blink.
     pupil_track_timeout_s: float = 0.5
+    # Once the eye-sphere model is established, the pupil must lie on the
+    # eyeball. Anything beyond this multiple of the sphere radius is off the
+    # eyeball entirely - a lash or lid blob, not a pupil. The slack above 1.0
+    # absorbs error in the sphere estimate itself.
+    pupil_max_eye_radius_fraction: float = 1.15
     # Eyelashes are thin and dark; an opening (erode then dilate) removes them
     # before the dilation that would otherwise fatten them into blobs.
     lash_open_iterations: int = 1
@@ -136,7 +141,10 @@ class Config:
     # The API key is NOT stored here - it comes from the GEMINI_API_KEY
     # environment variable or a gitignored gemini_key.txt, so the settings
     # page can never read it back out.
-    vision_model: str = "gemini-2.5-flash-lite"
+    # Google retires model names periodically (2.5-flash-lite stopped taking
+    # new users), and the API says which one to move to in the 404 body. This
+    # is editable from the settings page so a rename needs no code change.
+    vision_model: str = "gemini-3.5-flash-lite"
     vision_enabled: bool = True
 
     # Populated at runtime, not user facing.

@@ -141,7 +141,21 @@
     <div class="field"><label>rotunjime minimă<small>genele sunt alungite</small></label><input type="number" step="0.05" min="0" max="1" data-key="pupil_min_circularity"></div>
     <div class="field"><label>arie maximă (fracție cadru)</label><input type="number" step="0.05" min="0.02" max="1" data-key="pupil_max_area_fraction"></div>
     <div class="field"><label>salt maxim per frame<small>fracție din lățime</small></label><input type="number" step="0.05" min="0.05" max="2" data-key="pupil_max_jump_fraction"></div>
+    <div class="field"><label>rază max. glob ocular<small>peste 1.0 = în afara ochiului</small></label><input type="number" step="0.05" min="0.5" max="3" data-key="pupil_max_eye_radius_fraction"></div>
     <div class="field"><label>iterații curățare gene<small>0 = oprit</small></label><input type="number" min="0" max="4" data-key="lash_open_iterations"></div>
+  </section>
+
+  <section class="card">
+    <h2>Model AI viziune</h2>
+    <p style="color:var(--muted);margin-top:0;font-size:11px">
+      Google retrage periodic nume de modele. Dacă primești eroare 404, mesajul
+      îți spune ce model să pui aici — nu e nevoie să modifici cod.
+    </p>
+    <div class="field" style="grid-template-columns:1fr">
+      <label>nume model</label>
+    </div>
+    <input type="text" data-key="vision_model" style="width:100%;background:#21262d;border:1px solid var(--line);border-radius:6px;color:var(--text);padding:6px 8px;font:inherit">
+    <div class="field" style="margin-top:10px"><label>cheie API prezentă</label><b id="keyPresent" style="color:var(--muted)">-</b></div>
   </section>
 
   <section class="card">
@@ -226,6 +240,7 @@ function applyAll() {
     var key = el.dataset.key;
     if (el.type === "checkbox") values[key] = el.checked;
     else if (el.tagName === "SELECT") values[key] = parseInt(el.value, 10);
+    else if (el.type === "text") values[key] = el.value;   // model name, not a number
     else values[key] = parseFloat(el.value);
   });
   send("set", { values: values }).then(function (data) {
@@ -272,7 +287,12 @@ function connectEvents() {
   source.onerror = function () { source.close(); setTimeout(connectEvents, 1500); };
 }
 
-fetch("/api/config").then(function (r) { return r.json(); }).then(fillForm);
+fetch("/api/config").then(function (r) { return r.json(); }).then(function (cfg) {
+  fillForm(cfg);
+  var el = document.getElementById("keyPresent");
+  el.textContent = cfg.vision_key_present ? "da" : "NU - setează GEMINI_API_KEY";
+  el.style.color = cfg.vision_key_present ? "var(--accent)" : "var(--bad)";
+});
 connectEvents();
 </script>
 </body>

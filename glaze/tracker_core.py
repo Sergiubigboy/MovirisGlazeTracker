@@ -744,6 +744,20 @@ class EyeTracker:
             metrics=metrics,
         )
 
+        # Physical gate: once the eye-sphere model exists, a real pupil sits on
+        # the eyeball surface. A candidate further from the sphere centre than
+        # the sphere radius is off the eyeball entirely - typically a lash or
+        # lid blob during a blink - so it cannot be a pupil.
+        if pupil_ellipse is not None and center is not None and self.max_observed_distance > 1:
+            offset_from_eye = math.hypot(center[0] - model_center_average[0],
+                                         center[1] - model_center_average[1])
+            limit = self.max_observed_distance * cfg.pupil_max_eye_radius_fraction
+            if offset_from_eye > limit:
+                metrics = {"rejected": {"outside_eyeball":
+                                        round(offset_from_eye / self.max_observed_distance, 2)}}
+                result.metrics = metrics
+                pupil_ellipse, center = None, None
+
         if pupil_ellipse is not None and center is not None:
             result.ok = True
             self._last_pupil_center = center

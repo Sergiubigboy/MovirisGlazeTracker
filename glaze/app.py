@@ -453,6 +453,7 @@ class GlazeApp:
             "pupil_min_circularity": cfg.pupil_min_circularity,
             "pupil_max_area_fraction": cfg.pupil_max_area_fraction,
             "pupil_max_jump_fraction": cfg.pupil_max_jump_fraction,
+            "pupil_max_eye_radius_fraction": cfg.pupil_max_eye_radius_fraction,
             "lash_open_iterations": cfg.lash_open_iterations,
             "gaze_zone_enter": cfg.gaze_zone_enter,
             "gaze_zone_exit": cfg.gaze_zone_exit,
@@ -636,6 +637,7 @@ class GlazeApp:
             "pupil_min_circularity": (float, 0.0, 1.0),
             "pupil_max_area_fraction": (float, 0.02, 1.0),
             "pupil_max_jump_fraction": (float, 0.05, 2.0),
+            "pupil_max_eye_radius_fraction": (float, 0.5, 3.0),
             "lash_open_iterations": (int, 0, 4),
             "gaze_zone_enter": (float, 0.05, 2.0),
             "gaze_zone_exit": (float, 0.0, 1.0),
@@ -645,6 +647,15 @@ class GlazeApp:
                 value = max(low, min(high, cast(values[key])))
                 setattr(cfg, key, value)
                 applied[key] = value
+
+        # Free-text: the model name changes when Google retires one, and the
+        # 404 body tells you the replacement, so this must be editable.
+        if "vision_model" in values:
+            name = str(values["vision_model"]).strip()
+            if not name or len(name) > 80 or "/" in name:
+                return {"ok": False, "error": "invalid model name"}
+            cfg.vision_model = name
+            applied["vision_model"] = name
 
         if "thresholds" in values:
             try:
