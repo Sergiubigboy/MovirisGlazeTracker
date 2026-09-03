@@ -11,15 +11,19 @@
     --blue:#58a6ff; --purple:#bc8cff;
   }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--text);
+  /* Full-height column so only the log list scrolls - the controls and the
+     status row stay put instead of scrolling away while you read. */
+  html, body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--text); overflow:hidden;
+         display:flex; flex-direction:column;
          font:13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   header { display:flex; align-items:center; gap:14px; flex-wrap:wrap;
-           padding:12px 20px; border-bottom:1px solid var(--line); }
+           padding:12px 20px; border-bottom:1px solid var(--line); flex:none; }
   header h1 { margin:0; font-size:15px; letter-spacing:.08em; text-transform:uppercase; }
   header a { color:var(--accent); text-decoration:none; }
   header .spacer { margin-left:auto; }
 
-  .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center;
+  .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; flex:none;
          padding:10px 20px; border-bottom:1px solid var(--line); background:var(--panel); }
   button { font:inherit; color:var(--text); background:#21262d; border:1px solid var(--line);
            border-radius:6px; padding:5px 10px; cursor:pointer; }
@@ -27,14 +31,14 @@
   button.on { border-color:var(--accent); color:var(--accent); }
   label.chk { display:flex; align-items:center; gap:5px; color:var(--muted); }
 
-  .status { padding:12px 20px; display:grid;
+  .status { padding:12px 20px; display:grid; flex:none;
             grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px;
             border-bottom:1px solid var(--line); }
   .stat { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
   .stat .k { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.06em; }
   .stat .v { font-size:15px; margin-top:3px; word-break:break-word; }
 
-  #rows { padding:8px 20px 40px; }
+  #rows { flex:1; overflow-y:auto; padding:8px 20px 40px; }
   .row { display:grid; grid-template-columns:76px 82px 1fr; gap:10px;
          padding:4px 0; border-bottom:1px solid #1b2029; align-items:start; }
   .t { color:var(--muted); }
@@ -89,10 +93,31 @@ function buildFilters() {
   }).join(" ");
 }
 function toggleCat(cat, on) { hidden[cat] = !on; }
-function toggleFollow() {
-  follow = !follow;
-  document.getElementById("btnFollow").className = follow ? "on" : "";
+
+var rowsEl = document.getElementById("rows");
+
+function nearBottom() {
+  return rowsEl.scrollHeight - rowsEl.scrollTop - rowsEl.clientHeight < 40;
 }
+
+function setFollow(on) {
+  if (follow === on) return;
+  follow = on;
+  var btn = document.getElementById("btnFollow");
+  btn.className = follow ? "on" : "";
+  btn.textContent = follow ? "urmărește" : "oprit (derulează jos ca să reia)";
+}
+
+function toggleFollow() {
+  setFollow(!follow);
+  if (follow) rowsEl.scrollTop = rowsEl.scrollHeight;
+}
+
+// Scrolling up pauses following, coming back to the bottom resumes it.
+// Without this, the 2 Hz refresh yanked you back down mid-read.
+rowsEl.addEventListener("scroll", function () {
+  setFollow(nearBottom());
+});
 
 function post(action, extra) {
   return fetch("/api/command", {
@@ -105,7 +130,8 @@ function cancelConv() { post("conversation_cancel"); }
 function clearLog() {
   post("log_clear").then(function () {
     lastId = 0;
-    document.getElementById("rows").innerHTML = "";
+    rowsEl.innerHTML = "";
+    setFollow(true);
   });
 }
 
@@ -136,9 +162,18 @@ function appendEntries(entries) {
     host.appendChild(row);
   });
 
-  // Keep the DOM from growing without bound during a long session.
-  while (host.children.length > 500) host.removeChild(host.firstChild);
-  if (follow) window.scrollTo(0, document.body.scrollHeight);
+  // Only trim while following: dropping rows off the top shifts everything
+  // under the cursor, which is maddening if you are reading history.
+  if (follow) {
+    while (host.children.length > 500) host.removeChild(host.firstChild);
+    host.scrollTop = host.scrollHeight;
+  } else if (host.children.length > 2000) {
+    // Safety valve while paused: trim, but shift scrollTop by exactly the
+    // height removed so what you are reading stays where it was.
+    var before = host.scrollHeight;
+    while (host.children.length > 1500) host.removeChild(host.firstChild);
+    host.scrollTop -= (before - host.scrollHeight);
+  }
 }
 
 function escapeHtml(s) {
