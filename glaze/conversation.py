@@ -65,11 +65,22 @@ class ConversationEngine:
         self.last_sentence = ""
         self.last_error = ""
         self._menu_blocked_until = 0.0
+        # Set every frame by update(); needed here because the web UI can ask
+        # for state before the first frame has been processed.
+        self.model_ready = False
 
     # -- called from the tracking loop (must stay cheap) -------------------
     def update(self, result, scene_point, now=None):
         now = time.time() if now is None else now
         cfg = self.cfg
+
+        # The eye model is only meaningful once it has collected rays from
+        # several directions and settled on a sphere. Until then
+        # gaze_normalized is measured against a placeholder centre with zero
+        # radius, so it sits at a fixed offset that looks like a hard stare
+        # in one direction - enough to trip the menus over and over.
+        self.model_ready = (result.sphere_radius > 1.0
+                            and result.ray_count >= cfg.model_ready_rays)
 
         with self._lock:
             self._gaze = result.gaze_normalized if result.ok else None
@@ -111,6 +122,8 @@ class ConversationEngine:
         """
         cfg = self.cfg
         if now < self._menu_blocked_until:
+            return
+        if cfg.menu_require_model and not self.model_ready:
             return
 
         with self._lock:
@@ -174,7 +187,7 @@ class ConversationEngine:
         self.log.add("capture", "photo %d captured" % count,
                      {"point": [round(point[0], 3), round(point[1], 3)],
                       "uncertainty": round(radius, 3)})
-        self.speak_question("poză %d" % count)
+        self.cue("capture")
 
     # -- session control ---------------------------------------------------
     def start(self, trigger="triple_blink"):
@@ -190,6 +203,7 @@ class ConversationEngine:
             self.last_error = ""
 
         self.log.add("state", "session started", {"trigger": trigger})
+        self.cue("start")
         self.worker = threading.Thread(target=self._run, args=(trigger,), daemon=True)
         self.worker.start()
         return {"ok": True, "trigger": trigger}
@@ -241,7 +255,7 @@ class ConversationEngine:
                 self._finish(sentence)
                 return
         self.log.add("state", "menu exhausted with no confirmation")
-        self.speak_question("am înțeles, renunț")
+        self.cue("error")
 
     def _run_visual(self):
         cfg = self.cfg
@@ -261,11 +275,11 @@ class ConversationEngine:
 
         if not captures:
             self.log.add("state", "no photos captured, nothing to analyse")
-            self.speak_question("nu am prins nimic")
+            self.cue("error")
             return
 
         self.log.add("ai", "sending %d photo(s) for analysis" % len(captures))
-        self.speak_question("mă gândesc")
+        self.cue("thinking")
 
         answer = vision.analyze_pillars(
             captures, model=cfg.vision_model, language=cfg.vision_language,
@@ -275,7 +289,7 @@ class ConversationEngine:
         if not answer.get("ok"):
             self.last_error = answer.get("error", "analysis failed")
             self.log.add("error", "analysis failed: %s" % self.last_error)
-            self.speak_question("nu am reușit")
+            self.cue("error")
             return
 
         self.log.add("ai", "pillars received", answer)
@@ -364,6 +378,7 @@ class ConversationEngine:
             self.current_question = word
 
         self.log.add("question", word)
+        self.cue("question")
         self.speak_question(word + "?")
 
         deadline = time.time() + cfg.answer_timeout_ms / 1000.0
@@ -386,9 +401,11 @@ class ConversationEngine:
             held_ms = (now - since) * 1000.0
             if zone == "U" and held_ms >= cfg.answer_dwell_ms:
                 self.log.add("answer", "YES to %r" % word, {"held_ms": round(held_ms)})
+                self.cue("yes")
                 return True
             if zone == "D" and held_ms >= cfg.answer_dwell_ms:
                 self.log.add("answer", "NO to %r" % word, {"held_ms": round(held_ms)})
+                self.cue("no")
                 return False
             time.sleep(0.02)
 
@@ -400,6 +417,7 @@ class ConversationEngine:
             self.state = "SPEAKING"
             self.last_sentence = sentence
         self.log.add("speech", "speaking final sentence", {"sentence": sentence})
+        self.cue("done")
         self.speak_aloud(sentence)
 
     def _still_running(self):
@@ -407,6 +425,14 @@ class ConversationEngine:
             return self.state not in ("IDLE",)
 
     # -- audio -------------------------------------------------------------
+    def cue(self, name):
+        """Short tone in the earpiece marking a step in the flow."""
+        if not self.cfg.sound_cues:
+            return
+        cfg = self.cfg
+        device = cfg.tts_question_device or cfg.tts_audio_device or None
+        speech.cue(name, device=device)
+
     def speak_question(self, text):
         """Into the earpiece - short prompts only the wearer needs to hear."""
         cfg = self.cfg
@@ -430,4 +456,5 @@ class ConversationEngine:
                 "last_sentence": self.last_sentence,
                 "error": self.last_error,
                 "zone": self._zone,
+                "model_ready": self.model_ready,
             }

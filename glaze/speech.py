@@ -13,9 +13,13 @@ For nicer voices later, this is the one place to swap in Piper TTS - the
 
 from __future__ import annotations
 
+import io
+import math
 import re
+import struct
 import subprocess
 import threading
+import wave
 
 
 def list_playback_devices():
@@ -57,6 +61,74 @@ def detect_output_device():
             return "plughw:CARD=%s,DEV=0" % device["card"]
 
     return None
+
+
+# Short distinct cues so the wearer can follow what the system is doing
+# without looking at a screen - which is the whole point, since the person
+# this is built for cannot look away at a dashboard to check.
+# (frequency Hz, milliseconds) pairs, played in order.
+CUES = {
+    "start":    [(660, 90), (880, 140)],           # session began: rising
+    "capture":  [(1200, 70)],                      # photo taken: short blip
+    "thinking": [(500, 80), (0, 60), (500, 80)],   # sent to the model
+    "question": [(760, 60)],                       # a question follows
+    "yes":      [(700, 70), (1050, 110)],          # answer registered: rising
+    "no":       [(700, 70), (440, 110)],           # falling
+    "done":     [(660, 90), (880, 90), (1170, 160)],  # sentence coming
+    "error":    [(300, 200), (240, 250)],          # low, unmistakable
+}
+
+
+def _tone_wav(steps, rate=22050, volume=0.35):
+    """Build a small WAV in memory from (frequency, ms) steps. 0 Hz = silence."""
+    frames = bytearray()
+    for frequency, milliseconds in steps:
+        count = int(rate * milliseconds / 1000.0)
+        for index in range(count):
+            if frequency <= 0:
+                frames += struct.pack("<h", 0)
+                continue
+            # Fade both ends of every step, otherwise the abrupt start and
+            # stop of the waveform clicks louder than the tone itself.
+            fade = min(1.0, index / 120.0, (count - index) / 120.0)
+            value = math.sin(2 * math.pi * frequency * index / rate)
+            frames += struct.pack("<h", int(value * fade * volume * 32767))
+
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(rate)
+        handle.writeframes(bytes(frames))
+    return buffer.getvalue()
+
+
+def cue(name, device=None, blocking=True, volume=0.35):
+    """Play one of the CUES tones. Returns False if there is no audio device."""
+    steps = CUES.get(name)
+    if not steps:
+        return False
+
+    target = device or detect_output_device()
+    if not target:
+        return False
+
+    payload = _tone_wav(steps, volume=volume)
+
+    def run():
+        try:
+            player = subprocess.Popen(["aplay", "-q", "-D", target],
+                                      stdin=subprocess.PIPE,
+                                      stderr=subprocess.DEVNULL)
+            player.communicate(payload, timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+
+    if blocking:
+        run()
+    else:
+        threading.Thread(target=run, daemon=True).start()
+    return True
 
 
 def speak(text, device=None, voice="ro", rate=165, blocking=False):

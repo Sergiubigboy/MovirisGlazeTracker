@@ -82,6 +82,27 @@
     transition: left .05s linear, top .05s linear;
   }
   #gazeCursor.on { display: block; }
+
+  /* Big, unmissable conversation banner - the whole point is not having to
+     hunt through a log to know what the device is doing right now. */
+  #convBanner {
+    display: none; margin: 0 20px 4px; padding: 18px 22px;
+    border-radius: 10px; border: 2px solid var(--line); background: var(--panel);
+  }
+  #convBanner.on { display: block; }
+  #convBanner .stage {
+    font-size: 12px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 6px;
+  }
+  #convBanner .big { font-size: 30px; line-height: 1.25; font-weight: 600; }
+  #convBanner .hint { margin-top: 8px; font-size: 13px; color: var(--muted); }
+
+  #convBanner.capturing { border-color: var(--blue, #58a6ff); }
+  #convBanner.asking    { border-color: var(--accent); }
+  #convBanner.asking .big { color: var(--accent); font-size: 42px; }
+  #convBanner.thinking  { border-color: var(--warn); }
+  #convBanner.speaking  { border-color: #f472b6; }
+  #convBanner.speaking .big { color: #f472b6; }
 </style>
 </head>
 <body>
@@ -100,6 +121,12 @@
     <a href="/settings" style="color:var(--accent);text-decoration:none">settings &amp; power</a>
   </span>
 </header>
+
+<div id="convBanner">
+  <div class="stage" id="convStage">-</div>
+  <div class="big" id="convBig">-</div>
+  <div class="hint" id="convHint"></div>
+</div>
 
 <main>
   <section class="card">
@@ -289,6 +316,8 @@ function render(s) {
   document.getElementById("calStatus").textContent =
     cal.points + " pts" + (cal.ready ? (", rms " + (cal.rms_error * 100).toFixed(1) + "%") : ", not fitted");
 
+  renderConversation(s.conversation || {}, s);
+
   var blinkEl = document.getElementById("blinkStatus");
   if (!s.armed) {
     blinkEl.textContent = "gestures: warming up";
@@ -306,6 +335,61 @@ function render(s) {
 
   if (s.notice) log(s.notice);
   else if (s.cameras.eye.error) log("eye camera: " + s.cameras.eye.error);
+}
+
+// Everything the wearer/carer needs to know, in one place, in big type.
+function renderConversation(c, s) {
+  var banner = document.getElementById("convBanner");
+  var stage = document.getElementById("convStage");
+  var big = document.getElementById("convBig");
+  var hint = document.getElementById("convHint");
+  var state = c.state || "IDLE";
+
+  banner.className = "";
+
+  if (state === "IDLE") {
+    // Idle is only worth showing when something is blocking a start.
+    if (c.model_ready === false) {
+      banner.className = "on";
+      stage.textContent = "modelul ochiului nu e gata";
+      big.textContent = "uită-te în jur câteva secunde";
+      hint.textContent = "stânga-dreapta-sus-jos, până rays ajunge la ~25 și sphere radius nu mai e 0. " +
+                         "Gesturile și meniurile sunt blocate până atunci, ca să nu se declanșeze singure.";
+    } else if (c.last_sentence) {
+      banner.className = "on speaking";
+      stage.textContent = "ultima propoziție rostită";
+      big.textContent = c.last_sentence;
+      hint.textContent = "clipește de 3 ori ca să începi din nou";
+    }
+    return;
+  }
+
+  banner.className = "on";
+
+  if (state === "CAPTURING") {
+    banner.className = "on capturing";
+    stage.textContent = "pasul 1 · adun poze  (" + (c.captures || 0) + " strânse)";
+    big.textContent = "uită-te fix la un obiect";
+    hint.textContent = "ține privirea nemișcată ~1 secundă pe fiecare lucru. " +
+                       "Auzi un bip scurt la fiecare poză.";
+  } else if (state === "ANALYZING") {
+    banner.className = "on thinking";
+    stage.textContent = "pasul 2 · mă gândesc";
+    big.textContent = "trimit pozele...";
+    hint.textContent = "durează 1-3 secunde";
+  } else if (state === "ASKING") {
+    banner.className = "on asking";
+    stage.textContent = "pasul 3 · răspunde  ·  SUS = da   JOS = nu";
+    big.textContent = c.question ? c.question + " ?" : "...";
+    hint.textContent = "ține privirea în sus ca să confirmi, în jos ca să refuzi";
+  } else if (state === "SPEAKING") {
+    banner.className = "on speaking";
+    stage.textContent = "pasul 4 · rostesc";
+    big.textContent = c.last_sentence || "...";
+    hint.textContent = "";
+  }
+
+  if (c.error) hint.textContent = "eroare: " + c.error;
 }
 
 function connectEvents() {

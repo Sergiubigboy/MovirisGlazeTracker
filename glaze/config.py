@@ -199,6 +199,15 @@ class Config:
     # After a menu ends or is declined, ignore that direction this long so a
     # gaze still parked there does not immediately re-open it.
     menu_cooldown_s: float = 6.0
+    # Do not let the menus fire until the eye-sphere model has actually
+    # converged. Before that, gaze_normalized is measured against a default
+    # centre and a zero radius, so it sits at a constant offset - which reads
+    # as "looking hard right" forever and opens the pain menu on a loop.
+    menu_require_model: bool = True
+    model_ready_rays: int = 25
+
+    # Audio cues so the wearer can follow the flow without a screen.
+    sound_cues: bool = True
 
     # Questions go to the earpiece, the final sentence to the loudspeaker.
     # Empty = use tts_audio_device for both (fine with a single speaker).
@@ -370,7 +379,8 @@ PERSISTABLE = {
     "answer_dwell_ms", "answer_timeout_ms", "answer_zone_threshold",
     "pillar_confidence_threshold", "max_options_per_pillar",
     "menu_dwell_ms", "menu_zone_threshold", "menu_confirm",
-    "menu_cooldown_s", "gaze_log_interval_s",
+    "menu_cooldown_s", "menu_require_model", "model_ready_rays",
+    "sound_cues", "gaze_log_interval_s",
 }
 
 

@@ -615,6 +615,9 @@ class GlazeApp:
             "menu_zone_threshold": cfg.menu_zone_threshold,
             "menu_confirm": cfg.menu_confirm,
             "menu_cooldown_s": cfg.menu_cooldown_s,
+            "menu_require_model": cfg.menu_require_model,
+            "model_ready_rays": cfg.model_ready_rays,
+            "sound_cues": cfg.sound_cues,
             "gaze_log_interval_s": cfg.gaze_log_interval_s,
         }
 
@@ -755,6 +758,13 @@ class GlazeApp:
             self.log.clear()
             return {"ok": True}
 
+        if action == "cue_test":
+            name = str(payload.get("cue") or "start")
+            device = cfg.tts_question_device or cfg.tts_audio_device or None
+            if not speech.cue(name, device=device, blocking=False):
+                return {"ok": False, "error": "no audio device, or unknown cue %r" % name}
+            return {"ok": True, "cue": name}
+
         if action == "tts_test":
             text = str(payload.get("text") or "Salut, te aud bine?")
             started = speech.speak(text, device=cfg.tts_audio_device or None,
@@ -797,7 +807,7 @@ class GlazeApp:
         booleans = ("flip_eye_vertical", "flip_eye_horizontal", "flip_scene_vertical",
                     "flip_scene_horizontal", "draw_overlay", "roi_mode", "write_gaze_file",
                     "tts_enabled", "vision_enabled", "conversation_enabled",
-                    "menu_confirm")
+                    "menu_confirm", "menu_require_model", "sound_cues")
         for key in booleans:
             if key in values:
                 setattr(cfg, key, bool(values[key]))
@@ -848,6 +858,7 @@ class GlazeApp:
             "menu_dwell_ms": (float, 300.0, 5000.0),
             "menu_zone_threshold": (float, 0.1, 2.0),
             "menu_cooldown_s": (float, 0.0, 60.0),
+            "model_ready_rays": (int, 1, 200),
             "gaze_log_interval_s": (float, 0.1, 10.0),
         }
         for key, (cast, low, high) in numbers.items():

@@ -545,6 +545,46 @@ sau nu e nimic relevant în cadru, sistemul trebuie să meargă și cu WiFi-ul
 căzut. Dacă rețeaua pică în mijlocul unei conversații normale, propoziția se
 construiește tot local, dintr-un șablon, în loc ca dispozitivul să amuțească.
 
+### Ce vezi și ce auzi în timp real
+
+Nu trebuie să te uiți în loguri ca să înțelegi ce face. În dashboard apare un
+**banner mare, colorat**, cu pasul curent:
+
+| Pas | Ce scrie mare | Culoare |
+|---|---|---|
+| adun poze | „uită-te fix la un obiect" + câte poze am | albastru |
+| mă gândesc | „trimit pozele..." | galben |
+| răspunde | **întrebarea, cu literă foarte mare** + „SUS = da, JOS = nu" | verde |
+| rostesc | propoziția finală | roz |
+
+Și fiecare pas are **sunetul lui distinct** în cască, ca să te poți orienta
+fără să te uiți la ecran — ceea ce e chiar scopul, pentru cineva care nu poate
+întoarce capul spre un monitor:
+
+| Sunet | Când |
+|---|---|
+| două note urcătoare | a pornit sesiunea (te-a văzut clipind de 3 ori) |
+| bip scurt înalt | a prins o poză |
+| două note joase | a trimis la AI |
+| bip scurt | urmează o întrebare |
+| două note urcătoare | ți-a înregistrat DA |
+| două note coborâtoare | ți-a înregistrat NU |
+| trei note urcătoare | urmează propoziția finală |
+| două note joase, lungi | ceva n-a mers |
+
+Le oprești din `/settings` → "sunete de feedback", și ai un buton de test.
+
+### Meniurile nu se declanșează până nu e gata modelul
+
+Semnalul `gaze_normalized` se măsoară față de centrul sferei ochiului. Cât
+timp modelul nu a convers, se măsoară față de un centru implicit cu rază zero
+— deci stă blocat pe un offset constant, care arată exact ca o privire ținută
+lung într-o parte, și **deschidea meniul de dureri la nesfârșit**.
+
+Acum meniurile sunt blocate până când `sphere radius` nu mai e 0 și s-au
+strâns destule raze (implicit 25). Banner-ul îți spune explicit când e cazul:
+*„modelul ochiului nu e gata — uită-te în jur câteva secunde"*.
+
 ### Log-ul (`/log`)
 
 Tot ce se întâmplă în spate, live: poziția ochiului, fiecare poză prinsă, ce
