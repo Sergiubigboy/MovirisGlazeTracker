@@ -618,6 +618,10 @@ class GlazeApp:
             "menu_require_model": cfg.menu_require_model,
             "model_ready_rays": cfg.model_ready_rays,
             "sound_cues": cfg.sound_cues,
+            "show_guide": cfg.show_guide,
+            "long_close_ms": cfg.long_close_ms,
+            "gaze_offset_x": cfg.gaze_offset_x,
+            "gaze_offset_y": cfg.gaze_offset_y,
             "gaze_log_interval_s": cfg.gaze_log_interval_s,
         }
 
@@ -733,6 +737,22 @@ class GlazeApp:
                 return {"ok": False, "error": str(exc)}
             return {"ok": True, "gestures": saved}
 
+        if action == "set_gaze_center":
+            gaze = tracker.last_result.gaze_normalized
+            if gaze is None:
+                return {"ok": False, "error": "nu văd pupila acum - încearcă din nou"}
+            # last_result is already offset-corrected, so accumulate rather
+            # than replace, otherwise a second press would undo the first.
+            cfg.gaze_offset_x = round(cfg.gaze_offset_x + gaze[0], 4)
+            cfg.gaze_offset_y = round(cfg.gaze_offset_y + gaze[1], 4)
+            config_module.save_runtime_settings(cfg, {
+                "gaze_offset_x": cfg.gaze_offset_x,
+                "gaze_offset_y": cfg.gaze_offset_y})
+            self.log.add("state", "gaze centre set",
+                         {"offset": [cfg.gaze_offset_x, cfg.gaze_offset_y]})
+            return {"ok": True, "offset": [cfg.gaze_offset_x, cfg.gaze_offset_y],
+                    "note": "recalibrează scena după asta"}
+
         if action == "swap_cameras":
             cfg.camera_swapped = not cfg.camera_swapped
             config_module.save_runtime_settings(cfg, {"camera_swapped": cfg.camera_swapped})
@@ -807,7 +827,8 @@ class GlazeApp:
         booleans = ("flip_eye_vertical", "flip_eye_horizontal", "flip_scene_vertical",
                     "flip_scene_horizontal", "draw_overlay", "roi_mode", "write_gaze_file",
                     "tts_enabled", "vision_enabled", "conversation_enabled",
-                    "menu_confirm", "menu_require_model", "sound_cues")
+                    "menu_confirm", "menu_require_model", "sound_cues",
+                    "show_guide")
         for key in booleans:
             if key in values:
                 setattr(cfg, key, bool(values[key]))
@@ -859,6 +880,9 @@ class GlazeApp:
             "menu_zone_threshold": (float, 0.1, 2.0),
             "menu_cooldown_s": (float, 0.0, 60.0),
             "model_ready_rays": (int, 1, 200),
+            "long_close_ms": (float, 300.0, 4000.0),
+            "gaze_offset_x": (float, -3.0, 3.0),
+            "gaze_offset_y": (float, -3.0, 3.0),
             "gaze_log_interval_s": (float, 0.1, 10.0),
         }
         for key, (cast, low, high) in numbers.items():

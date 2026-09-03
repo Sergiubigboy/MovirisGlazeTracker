@@ -35,7 +35,9 @@ DEFAULT_GESTURES = [
         "tokens": ["B", "B", "B"],
         "window_ms": 1500,
         "cooldown_ms": 3000,
-        "action": "identify_object",
+        # Holding the eyes shut is the primary way to start a conversation
+        # (handled directly by the engine); this stays as a second route.
+        "action": "start_conversation",
         "enabled": True,
     },
     {

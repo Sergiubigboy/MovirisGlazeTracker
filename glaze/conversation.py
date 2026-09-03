@@ -68,6 +68,11 @@ class ConversationEngine:
         # Set every frame by update(); needed here because the web UI can ask
         # for state before the first frame has been processed.
         self.model_ready = False
+        self._long_close_armed = True
+        self._long_close_blocked_until = 0.0
+        # Set when the wearer signals "done choosing" by holding their eyes
+        # shut; the capture loop waits on it instead of only a timeout.
+        self._finish_capturing = threading.Event()
 
     # -- called from the tracking loop (must stay cheap) -------------------
     def update(self, result, scene_point, now=None):
@@ -93,6 +98,9 @@ class ConversationEngine:
 
             state = self.state
 
+        if cfg.conversation_enabled:
+            self._check_long_close(result, now)
+
         if state == "CAPTURING" and scene_point is not None:
             self._check_capture_dwell(scene_point, now)
 
@@ -113,6 +121,39 @@ class ConversationEngine:
         if gaze[0] >= threshold:
             return "R"
         return "C"
+
+    def _check_long_close(self, result, now):
+        """Eyes held shut = the one control gesture.
+
+        Once to start choosing, once more when finished choosing. Holding a
+        closure is far more reliable than triple blinking, which needs timing
+        that the person this is built for may not have - and which, in
+        practice, never once fired a session.
+        """
+        cfg = self.cfg
+
+        if result.eye_closed_ms <= 0:
+            self._long_close_armed = True      # eyes open again, re-arm
+            return
+        if not self._long_close_armed:
+            return
+        if result.eye_closed_ms < cfg.long_close_ms:
+            return
+        if now < self._long_close_blocked_until:
+            return
+
+        self._long_close_armed = False
+        self._long_close_blocked_until = now + cfg.long_close_cooldown_s
+
+        with self._lock:
+            state = self.state
+
+        if state == "IDLE":
+            self.log.add("state", "long eye closure -> start choosing")
+            self.start("triple_blink")
+        elif state == "CAPTURING":
+            self.log.add("state", "long eye closure -> done choosing")
+            self._finish_capturing.set()
 
     def _check_menu_dwell(self, now):
         """A pointed, sustained look left or right opens a fixed menu.
@@ -198,6 +239,7 @@ class ConversationEngine:
             self._captures = []
             self._dwell_anchor = None
             self._last_capture_point = None
+            self._finish_capturing.clear()
             self.pillars = {}
             self.current_question = ""
             self.last_error = ""
@@ -261,13 +303,17 @@ class ConversationEngine:
         cfg = self.cfg
         deadline = time.time() + cfg.capture_window_s
 
-        self.speak_question("privește")
+        self.speak_question("alege")
         while self._still_running():
             with self._lock:
                 count = len(self._captures)
             if count >= cfg.max_captures or time.time() > deadline:
                 break
-            time.sleep(0.1)
+            if self._finish_capturing.is_set():
+                self.log.add("capture", "finished choosing on request",
+                             {"photos": count})
+                break
+            time.sleep(0.05)
 
         with self._lock:
             captures = list(self._captures)

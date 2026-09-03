@@ -507,10 +507,12 @@ Se bazează pe ideea că aproape orice mesaj se reduce la patru piloni —
 ### Fluxul
 
 ```
-triplu-clipit
+ȚII OCHII ÎNCHIȘI 1 SECUNDĂ            ← singurul gest de care ai nevoie
    ↓
-CAPTURING   fixezi privirea ~1s pe ceva → poză cu cercul tău de privire
-            (max 3 poze, sau până expiră fereastra)
+ALEGI       te uiți fix ~1s la fiecare lucru → bip = l-a prins
+            (max 3, în orice ordine)
+   ↓
+ȚII OCHII ÎNCHIȘI 1 SECUNDĂ            ← „am terminat de ales"
    ↓
 ANALYZING   UN SINGUR apel AI cu toate pozele → cei 4 piloni + încredere
    ↓
@@ -519,6 +521,13 @@ ASKING      fiecare pilon sub prag → opțiunile lui, pe rând, în cască
    ↓
 SPEAKING    propoziția finală, pe difuzorul mare
 ```
+
+**Același gest pornește și oprește alegerea.** Am ales închiderea ochilor în
+locul triplului clipit pentru că triplul clipit cere un timing pe care omul
+care folosește dispozitivul poate să nu-l aibă — în practică, la testele
+reale, nu a pornit nicio sesiune. Ținutul ochilor închiși nu ratează.
+
+Triplul clipit rămâne disponibil ca al doilea drum, din pagina de gesturi.
 
 Emoția **nu se întreabă niciodată** — e dedusă de model, cum ai cerut.
 Pilonii se întreabă în ordinea persoană → acțiune → obiect.
@@ -573,6 +582,27 @@ fără să te uiți la ecran — ceea ce e chiar scopul, pentru cineva care nu p
 | două note joase, lungi | ceva n-a mers |
 
 Le oprești din `/settings` → "sunete de feedback", și ai un buton de test.
+
+### Centrul privirii (dacă meniurile se declanșează singure)
+
+Estimarea centrului sferei ochiului are o deviație în practică: „mă uit drept"
+poate ieși ca `x = +0.4`, ceea ce înseamnă că sistemul crede permanent că te
+uiți la dreapta — și deschide meniul de dureri la nesfârșit.
+
+Reparația: **uită-te drept înainte și apasă „setează centrul privirii"** în
+dashboard (ai 1.5 secunde după apăsare să stai nemișcat). Offsetul se scade
+apoi din semnal la sursă, deci toate direcțiile devin simetrice. Se salvează
+în `runtime.json`.
+
+Recalibrează scena după asta — calibrarea veche a fost făcută pe semnalul
+deviat.
+
+### Ghid pe camera de ochi
+
+Peste imaginea ochiului se desenează un ghid: cercul pragului de răspuns,
+etichetele fiecărei direcții (`DA` sus, `NU` jos, `nevoi` stânga, `dureri`
+dreapta) și un punct care arată unde e privirea ta acum față de ele. Îl
+oprești din `/settings` → „ghid pe camera de ochi".
 
 ### Meniurile nu se declanșează până nu e gata modelul
 

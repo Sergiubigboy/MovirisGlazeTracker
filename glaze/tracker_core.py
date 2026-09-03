@@ -409,6 +409,10 @@ class TrackingResult:
     # this, so a blink is never lost to window decay or to the triple-blink
     # counter being cleared.
     blink_total: int = 0
+    # How long the eye has been continuously shut, in milliseconds. A blink is
+    # a couple of hundred ms; holding it shut for a second is a deliberate,
+    # easy gesture that needs no timing skill - unlike triple blinking.
+    eye_closed_ms: float = 0.0
     # One-frame pulse: just reached 3 blinks within the window.
     triple_blink: bool = False
     # False during the warm-up period right after a model reset, so gesture
@@ -444,6 +448,7 @@ class TrackingResult:
             "blinking": self.blinking,
             "blink_count_recent": self.blink_count_recent,
             "blink_total": self.blink_total,
+            "eye_closed_ms": round(self.eye_closed_ms),
             "triple_blink": self.triple_blink,
             "armed": self.armed,
             "metrics": self.metrics,
@@ -642,7 +647,9 @@ class EyeTracker:
             triple = True
             self._blink_events = []  # consume so it fires once, not every frame
 
-        return self._blink_active, len(self._blink_events), triple, armed, self.blink_total
+        closed_ms = (now - self._blink_start) * 1000.0 if self._blink_active else 0.0
+        return (self._blink_active, len(self._blink_events), triple, armed,
+                self.blink_total, closed_ms)
 
     # -- per frame ------------------------------------------------------
     def process_frame(self, frame, draw=True, timestamp=None):
@@ -777,17 +784,24 @@ class EyeTracker:
 
             radius = self.max_observed_distance if self.max_observed_distance > 1 else max(
                 cfg.proc_width * 0.25, 1.0)
+            # The eye-sphere centre estimate carries a bias, so looking
+            # straight ahead can read as a hard stare to one side - enough to
+            # trip the side menus permanently. gaze_offset_* is captured once
+            # by "set centre" in the UI and removed here, at the source, so
+            # every consumer downstream sees a centred signal.
             result.gaze_normalized = (
-                (center[0] - model_center_average[0]) / radius,
-                (center[1] - model_center_average[1]) / radius,
+                (center[0] - model_center_average[0]) / radius - cfg.gaze_offset_x,
+                (center[1] - model_center_average[1]) / radius - cfg.gaze_offset_y,
             )
 
-        blinking, blink_count, triple, armed, total = self._update_blink(result.ok, now)
+        (blinking, blink_count, triple, armed, total,
+         closed_ms) = self._update_blink(result.ok, now)
         result.blinking = blinking
         result.blink_count_recent = blink_count
         result.triple_blink = triple
         result.armed = armed
         result.blink_total = total
+        result.eye_closed_ms = closed_ms
 
         if draw:
             self._draw_overlay(frame, result, model_center_average, center, pupil_ellipse)
@@ -911,6 +925,9 @@ class EyeTracker:
             "  BLINK" if result.blinking else "")
         self._put_text(frame, top, (6, step), scale)
 
+        if self.cfg.show_guide:
+            self._draw_guide(frame, result)
+
         if not result.armed:
             self._put_text(frame, "gestures warming up...", (6, step * 2), scale)
         elif result.blink_count_recent > 0:
@@ -924,6 +941,42 @@ class EyeTracker:
                            (6, height - step - 4), scale)
             self._put_text(frame, "D %.2f %.2f %.2f" % result.gaze_direction,
                            (6, height - 5), scale)
+
+    def _draw_guide(self, frame, result):
+        """Legend on the eye view: what each direction actually does.
+
+        Without it there is no way to learn the controls except by reading
+        source or guessing, and the person using this cannot do either.
+        """
+        height, width = frame.shape[:2]
+        centre = (width // 2, height // 2)
+        gaze = result.gaze_normalized
+
+        # Circle marking where the answer threshold sits, drawn at the same
+        # scale the thresholds are actually evaluated in.
+        radius = int(self.cfg.answer_zone_threshold * min(width, height) * 0.5)
+        if 4 < radius < max(width, height):
+            cv2.circle(frame, centre, radius, (90, 90, 90), 1)
+
+        labels = [
+            ("DA", centre[0] - 10, 12),
+            ("NU", centre[0] - 10, height - 4),
+            ("nevoi", 4, centre[1]),
+            ("dureri", width - 44, centre[1]),
+        ]
+        for text, x, y in labels:
+            cv2.putText(frame, text, (x + 1, y + 1), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.32, (0, 0, 0), 2, cv2.LINE_AA)
+            cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.32, (150, 150, 150), 1, cv2.LINE_AA)
+
+        # Live dot showing where the current gaze sits relative to those zones.
+        if gaze is not None:
+            dot = (int(centre[0] + gaze[0] * min(width, height) * 0.5),
+                   int(centre[1] + gaze[1] * min(width, height) * 0.5))
+            if 0 <= dot[0] < width and 0 <= dot[1] < height:
+                cv2.circle(frame, dot, 4, (0, 0, 0), -1)
+                cv2.circle(frame, dot, 3, (80, 200, 255), -1)
 
     @staticmethod
     def _put_text(frame, text, origin, scale):

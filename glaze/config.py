@@ -149,6 +149,23 @@ class Config:
     gaze_zone_enter: float = 0.35
     gaze_zone_exit: float = 0.20
 
+    # Subtracted from gaze_normalized at the source. The eye-sphere centre
+    # estimate is biased in practice, so "looking straight" can read as a
+    # steady offset to one side - which permanently trips the side menus and
+    # skews every direction. Captured once by "setează centrul" in the UI.
+    gaze_offset_x: float = 0.0
+    gaze_offset_y: float = 0.0
+
+    # Holding both eyes shut this long is the main control gesture: once to
+    # start choosing, once more when finished. Far easier to perform reliably
+    # than triple-blinking, which needs timing the person may not have.
+    long_close_ms: float = 900.0
+    # Ignore further closures this long after one fires, so a single hold
+    # cannot immediately count twice.
+    long_close_cooldown_s: float = 2.0
+    # Draw a legend on the eye view showing what each direction does.
+    show_guide: bool = True
+
     # ---- vision model ----------------------------------------------------
     # The API key is NOT stored here - it comes from the GEMINI_API_KEY
     # environment variable or a gitignored gemini_key.txt, so the settings
@@ -380,7 +397,8 @@ PERSISTABLE = {
     "pillar_confidence_threshold", "max_options_per_pillar",
     "menu_dwell_ms", "menu_zone_threshold", "menu_confirm",
     "menu_cooldown_s", "menu_require_model", "model_ready_rays",
-    "sound_cues", "gaze_log_interval_s",
+    "sound_cues", "gaze_log_interval_s", "show_guide",
+    "long_close_ms", "gaze_offset_x", "gaze_offset_y",
 }
 
 

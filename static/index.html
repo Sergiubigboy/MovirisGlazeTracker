@@ -164,6 +164,7 @@
     <div class="row">
       <button onclick="swapCameras()">inversează ochi/scenă</button>
       <button onclick="send('redetect_cameras')">re-detectează camere</button>
+      <button onclick="setCenter()">setează centrul privirii</button>
     </div>
     <p id="camInfo" style="color:var(--muted);font-size:11px;margin:0 0 10px"></p>
 
@@ -273,6 +274,19 @@ function swapCameras() {
   });
 }
 
+// Removes the standing bias in the gaze signal: look straight ahead, press.
+function setCenter() {
+  log("uită-te DREPT ÎNAINTE și nu mișca...");
+  setTimeout(function () {
+    send("set_gaze_center").then(function (data) {
+      if (data && data.offset) {
+        log("centru setat (offset " + data.offset.map(function (v) {
+          return v.toFixed(2); }).join(", ") + ") · " + (data.note || ""));
+      }
+    });
+  }, 1500);
+}
+
 function refreshCameraInfo() {
   fetch("/api/config").then(function (r) { return r.json(); }).then(function (cfg) {
     var found = (cfg.detected_cameras || []).join(", ") || "niciuna";
@@ -355,11 +369,13 @@ function renderConversation(c, s) {
       big.textContent = "uită-te în jur câteva secunde";
       hint.textContent = "stânga-dreapta-sus-jos, până rays ajunge la ~25 și sphere radius nu mai e 0. " +
                          "Gesturile și meniurile sunt blocate până atunci, ca să nu se declanșeze singure.";
-    } else if (c.last_sentence) {
-      banner.className = "on speaking";
-      stage.textContent = "ultima propoziție rostită";
-      big.textContent = c.last_sentence;
-      hint.textContent = "clipește de 3 ori ca să începi din nou";
+    } else {
+      banner.className = "on";
+      stage.textContent = "gata de pornire";
+      big.textContent = "ține ochii închiși 1 secundă ca să începi";
+      hint.textContent = c.last_sentence
+        ? "ultima propoziție: " + c.last_sentence
+        : "apoi uită-te pe rând la lucrurile despre care vrei să vorbești";
     }
     return;
   }
@@ -368,10 +384,10 @@ function renderConversation(c, s) {
 
   if (state === "CAPTURING") {
     banner.className = "on capturing";
-    stage.textContent = "pasul 1 · adun poze  (" + (c.captures || 0) + " strânse)";
-    big.textContent = "uită-te fix la un obiect";
-    hint.textContent = "ține privirea nemișcată ~1 secundă pe fiecare lucru. " +
-                       "Auzi un bip scurt la fiecare poză.";
+    stage.textContent = "pasul 1 · alege  (" + (c.captures || 0) + " selectate)";
+    big.textContent = "uită-te fix la ce vrei";
+    hint.textContent = "ține privirea nemișcată ~1 secundă pe fiecare lucru — auzi un bip când l-a prins. " +
+                       "Când ai terminat, ȚINE OCHII ÎNCHIȘI o secundă.";
   } else if (state === "ANALYZING") {
     banner.className = "on thinking";
     stage.textContent = "pasul 2 · mă gândesc";
