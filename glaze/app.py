@@ -620,6 +620,9 @@ class GlazeApp:
             "sound_cues": cfg.sound_cues,
             "show_guide": cfg.show_guide,
             "long_close_ms": cfg.long_close_ms,
+            "long_close_max_ms": cfg.long_close_max_ms,
+            "long_close_cooldown_s": cfg.long_close_cooldown_s,
+            "confirm_start": cfg.confirm_start,
             "gaze_offset_x": cfg.gaze_offset_x,
             "gaze_offset_y": cfg.gaze_offset_y,
             "gaze_log_interval_s": cfg.gaze_log_interval_s,
@@ -828,7 +831,7 @@ class GlazeApp:
                     "flip_scene_horizontal", "draw_overlay", "roi_mode", "write_gaze_file",
                     "tts_enabled", "vision_enabled", "conversation_enabled",
                     "menu_confirm", "menu_require_model", "sound_cues",
-                    "show_guide")
+                    "show_guide", "confirm_start")
         for key in booleans:
             if key in values:
                 setattr(cfg, key, bool(values[key]))
@@ -881,6 +884,8 @@ class GlazeApp:
             "menu_cooldown_s": (float, 0.0, 60.0),
             "model_ready_rays": (int, 1, 200),
             "long_close_ms": (float, 300.0, 4000.0),
+            "long_close_max_ms": (float, 500.0, 10000.0),
+            "long_close_cooldown_s": (float, 0.0, 30.0),
             "gaze_offset_x": (float, -3.0, 3.0),
             "gaze_offset_y": (float, -3.0, 3.0),
             "gaze_log_interval_s": (float, 0.1, 10.0),

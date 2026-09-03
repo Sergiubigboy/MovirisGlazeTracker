@@ -507,12 +507,14 @@ Se bazează pe ideea că aproape orice mesaj se reduce la patru piloni —
 ### Fluxul
 
 ```
-ȚII OCHII ÎNCHIȘI 1 SECUNDĂ            ← singurul gest de care ai nevoie
+ȚII OCHII ÎNCHIȘI ~1 SECUNDĂ           ← singurul gest de care ai nevoie
+   ↓
+„ÎNCEPEM?"  răspunzi SUS = da           ← protecție anti-pornire accidentală
    ↓
 ALEGI       te uiți fix ~1s la fiecare lucru → bip = l-a prins
             (max 3, în orice ordine)
    ↓
-ȚII OCHII ÎNCHIȘI 1 SECUNDĂ            ← „am terminat de ales"
+ȚII OCHII ÎNCHIȘI ~1 SECUNDĂ           ← „am terminat de ales"
    ↓
 ANALYZING   UN SINGUR apel AI cu toate pozele → cei 4 piloni + încredere
    ↓
@@ -522,12 +524,31 @@ ASKING      fiecare pilon sub prag → opțiunile lui, pe rând, în cască
 SPEAKING    propoziția finală, pe difuzorul mare
 ```
 
-**Același gest pornește și oprește alegerea.** Am ales închiderea ochilor în
-locul triplului clipit pentru că triplul clipit cere un timing pe care omul
-care folosește dispozitivul poate să nu-l aibă — în practică, la testele
-reale, nu a pornit nicio sesiune. Ținutul ochilor închiși nu ratează.
+**Același gest pornește și oprește alegerea.**
 
-Triplul clipit rămâne disponibil ca al doilea drum, din pagina de gesturi.
+### De ce nu pornește accidental
+
+Semnalul „ochi închiși" e de fapt „nu găsesc pupila" — care include și
+pierderile de tracking, nu doar închiderea intenționată. Fără apărări, orice
+pierdere de peste o secundă pornea o sesiune, inclusiv clipitul natural de
+după ce dispozitivul terminase de vorbit.
+
+Trei apărări, pentru că aici **un fals pozitiv costă mult mai mult decât un
+fals negativ** — mai bine ratează o comandă decât să pornească singur:
+
+| Apărare | Ce respinge |
+|---|---|
+| durată **între** 900ms și 2500ms | clipitul (prea scurt) și pierderea de tracking sau odihna (prea lungă) |
+| se decide **la redeschiderea ochiului**, nu în timpul închiderii | orice scădere temporară care traversează pragul |
+| pauză de 4s după orice comandă și după fiecare sesiune | clipitul natural de după propoziția rostită |
+| întrebarea „începem?" | tot ce a trecut de filtrele de mai sus dar nu era intenționat |
+
+Testat pe scenariile exacte din log-urile reale: clipit 200ms → ignorat;
+ținut 1.2s → pornește; pierdere de tracking 6s → ignorată; a doua încercare
+în perioada de pauză → blocată.
+
+Dacă vrei să pornească mai ușor (cu riscul pornirilor accidentale), oprești
+confirmarea din `/settings` → „confirmă «începem?»".
 
 Emoția **nu se întreabă niciodată** — e dedusă de model, cum ai cerut.
 Pilonii se întreabă în ordinea persoană → acțiune → obiect.

@@ -160,9 +160,19 @@ class Config:
     # start choosing, once more when finished. Far easier to perform reliably
     # than triple-blinking, which needs timing the person may not have.
     long_close_ms: float = 900.0
+    # ...and no longer than this. "Eye closed" really means "no pupil found",
+    # which also covers tracking dropouts and simply resting with the eyes
+    # shut. Bounding the hold at both ends, and only acting once the eye
+    # reopens, is what separates a deliberate command from either.
+    long_close_max_ms: float = 2500.0
     # Ignore further closures this long after one fires, so a single hold
-    # cannot immediately count twice.
-    long_close_cooldown_s: float = 2.0
+    # cannot immediately count twice - and so the natural blink right after a
+    # sentence is spoken does not start a new session.
+    long_close_cooldown_s: float = 4.0
+    # Ask before starting. A false start costs the wearer real time and
+    # attention, so one cheap yes/no is worth it - the same reasoning as the
+    # menu confirmation.
+    confirm_start: bool = True
     # Draw a legend on the eye view showing what each direction does.
     show_guide: bool = True
 
@@ -398,7 +408,8 @@ PERSISTABLE = {
     "menu_dwell_ms", "menu_zone_threshold", "menu_confirm",
     "menu_cooldown_s", "menu_require_model", "model_ready_rays",
     "sound_cues", "gaze_log_interval_s", "show_guide",
-    "long_close_ms", "gaze_offset_x", "gaze_offset_y",
+    "long_close_ms", "long_close_max_ms", "long_close_cooldown_s",
+    "confirm_start", "gaze_offset_x", "gaze_offset_y",
 }
 
 

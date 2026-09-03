@@ -68,7 +68,7 @@ class ConversationEngine:
         # Set every frame by update(); needed here because the web UI can ask
         # for state before the first frame has been processed.
         self.model_ready = False
-        self._long_close_armed = True
+        self._closed_peak = 0.0
         self._long_close_blocked_until = 0.0
         # Set when the wearer signals "done choosing" by holding their eyes
         # shut; the capture loop waits on it instead of only a timeout.
@@ -132,27 +132,38 @@ class ConversationEngine:
         """
         cfg = self.cfg
 
-        if result.eye_closed_ms <= 0:
-            self._long_close_armed = True      # eyes open again, re-arm
+        # While the eye is shut, just remember how long for. Acting here would
+        # fire on any tracking dropout that happens to cross the threshold.
+        if result.eye_closed_ms > 0:
+            self._closed_peak = max(self._closed_peak, result.eye_closed_ms)
             return
-        if not self._long_close_armed:
+
+        # Eye is open again: decide on the closure that just ended.
+        peak, self._closed_peak = self._closed_peak, 0.0
+        if peak <= 0:
             return
-        if result.eye_closed_ms < cfg.long_close_ms:
+
+        if peak < cfg.long_close_ms:
+            return                              # a blink
+        if peak > cfg.long_close_max_ms:
+            # Longer than anyone holds a command: a tracking dropout, or the
+            # person simply resting. Ignoring these is the whole point.
+            self.log.add("state", "closure ignored, too long",
+                         {"ms": round(peak)})
             return
         if now < self._long_close_blocked_until:
             return
 
-        self._long_close_armed = False
         self._long_close_blocked_until = now + cfg.long_close_cooldown_s
 
         with self._lock:
             state = self.state
 
         if state == "IDLE":
-            self.log.add("state", "long eye closure -> start choosing")
-            self.start("triple_blink")
+            self.log.add("state", "eye closure -> start", {"ms": round(peak)})
+            self.start("long_close")
         elif state == "CAPTURING":
-            self.log.add("state", "long eye closure -> done choosing")
+            self.log.add("state", "eye closure -> done choosing", {"ms": round(peak)})
             self._finish_capturing.set()
 
     def _check_menu_dwell(self, now):
@@ -235,7 +246,7 @@ class ConversationEngine:
         with self._lock:
             if self.state != "IDLE":
                 return {"ok": False, "error": "conversation already running (%s)" % self.state}
-            self.state = "CAPTURING" if trigger == "triple_blink" else "ASKING"
+            self.state = "ASKING" if trigger in ("needs", "pain") else "CAPTURING"
             self._captures = []
             self._dwell_anchor = None
             self._last_capture_point = None
@@ -274,6 +285,10 @@ class ConversationEngine:
             with self._lock:
                 self.state = "IDLE"
                 self.current_question = ""
+            # People blink and relax right after the sentence is spoken; that
+            # must not immediately count as the next start command.
+            self._long_close_blocked_until = time.time() + self.cfg.long_close_cooldown_s
+            self._closed_peak = 0.0
 
     def _run_menu(self, menu):
         """Fixed list, no camera, no model - works with the network down."""
@@ -301,8 +316,21 @@ class ConversationEngine:
 
     def _run_visual(self):
         cfg = self.cfg
-        deadline = time.time() + cfg.capture_window_s
 
+        # One cheap yes/no before committing the wearer's attention. The start
+        # signal is derived from "no pupil found", which can never be made
+        # perfectly specific, so the confirmation is what actually guarantees
+        # the session was wanted.
+        if cfg.confirm_start:
+            with self._lock:
+                self.state = "ASKING"
+            if not self._ask("începem"):
+                self.log.add("state", "start declined at confirmation")
+                return
+            with self._lock:
+                self.state = "CAPTURING"
+
+        deadline = time.time() + cfg.capture_window_s
         self.speak_question("alege")
         while self._still_running():
             with self._lock:
