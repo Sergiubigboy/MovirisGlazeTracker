@@ -27,6 +27,7 @@ from . import speech
 from . import vision
 from . import webserver
 from .calibration import Calibration, Smoother
+from . import config as config_module
 from .config import Config
 from .conversation import ConversationEngine
 from .eventlog import EventLog
@@ -81,6 +82,9 @@ class GlazeApp:
 
     def __init__(self, cfg: Config):
         self.cfg = cfg
+        # Apply what was saved from the web UI before anything reads the
+        # config - camera roles and tracker scaling both depend on it.
+        self.restored_settings = config_module.load_runtime_settings(cfg)
         self.tracker = EyeTracker(cfg)
         self.calibration = Calibration(cfg.calibration_path)
         self.calibration.load()
@@ -97,6 +101,9 @@ class GlazeApp:
 
         self.eye_camera = None
         self.scene_camera = None
+        self._camera_lock = threading.Lock()
+        self.detected_cameras = []
+        self.active_sources = {"eye": "", "scene": ""}
         self._threads = []
         self._server = None
 
@@ -125,11 +132,40 @@ class GlazeApp:
             self.notice = "UDP disabled: %s" % exc
             self._udp_socket = None
 
-    def start(self):
+    def _resolve_camera_sources(self):
+        """Turn "auto" into concrete devices from whatever is plugged in now.
+
+        Both roles are assigned from the same probe so they can never land on
+        the same node, and ``camera_swapped`` decides which of the two is the
+        eye - there is nothing in a V4L2 node that distinguishes two identical
+        camera modules, so that choice has to come from the user.
+        """
         cfg = self.cfg
+        if "auto" not in (cfg.eye_source, cfg.scene_source):
+            return cfg.eye_source, cfg.scene_source
+
+        indices = cameras.readable_device_indices()
+        self.detected_cameras = list(indices)
+        if cfg.camera_swapped:
+            indices = list(reversed(indices))
+
+        self.log.add("state", "auto-detected cameras",
+                     {"working": self.detected_cameras, "swapped": cfg.camera_swapped})
+
+        def pick(position):
+            return "usb:%d" % indices[position] if len(indices) > position else ""
+
+        eye = cfg.eye_source if cfg.eye_source != "auto" else pick(0)
+        scene = cfg.scene_source if cfg.scene_source != "auto" else pick(1)
+        return eye, scene
+
+    def _open_cameras(self):
+        cfg = self.cfg
+        eye_spec, scene_spec = self._resolve_camera_sources()
+        self.notice = ""
 
         self.eye_camera = cameras.create_source(
-            cfg.eye_source, cfg.eye_capture_width, cfg.eye_capture_height,
+            eye_spec, cfg.eye_capture_width, cfg.eye_capture_height,
             cfg.eye_capture_fps, cfg.eye_fourcc, name="eye")
         if self.eye_camera is not None:
             try:
@@ -140,9 +176,11 @@ class GlazeApp:
                 # and keep serving the web UI with a placeholder frame.
                 self.notice = "eye camera: %s" % exc
                 self.eye_camera = None
+        elif eye_spec == "":
+            self.notice = "no eye camera detected"
 
         self.scene_camera = cameras.create_source(
-            cfg.scene_source, cfg.scene_capture_width, cfg.scene_capture_height,
+            scene_spec, cfg.scene_capture_width, cfg.scene_capture_height,
             cfg.scene_capture_fps, "MJPG", name="scene")
         if self.scene_camera is not None:
             try:
@@ -151,12 +189,37 @@ class GlazeApp:
                 self.notice = ("%s | scene camera: %s" % (self.notice, exc)).strip(" |")
                 self.scene_camera = None
 
+        self.active_sources = {"eye": eye_spec, "scene": scene_spec}
+        self.log.add("state", "cameras opened", dict(self.active_sources))
+
+    def start(self):
+        cfg = self.cfg
+        self._open_cameras()
+
         self._spawn(self._tracking_loop, "tracking")
-        if self.scene_camera is not None:
-            self._spawn(self._scene_loop, "scene")
+        # Always spawn it: the scene camera can appear later, after a swap or
+        # a re-detect, and the loop handles "not there yet" on its own.
+        self._spawn(self._scene_loop, "scene")
 
         self._server = webserver.serve(self, cfg.host, cfg.port)
         return self
+
+    def restart_cameras(self):
+        """Re-probe and reopen both cameras without restarting the process."""
+        with self._camera_lock:
+            for camera in (self.eye_camera, self.scene_camera):
+                if camera is not None:
+                    try:
+                        camera.stop()
+                    except Exception:
+                        pass
+            self.eye_camera = None
+            self.scene_camera = None
+            time.sleep(0.3)          # let the driver release the nodes
+            self._open_cameras()
+
+        return {"ok": True, "sources": dict(self.active_sources),
+                "detected": list(self.detected_cameras)}
 
     def _spawn(self, target, name):
         thread = threading.Thread(target=target, name=name, daemon=True)
@@ -254,9 +317,19 @@ class GlazeApp:
         last_encode = 0.0
 
         while not self.stopping:
-            frame, sequence = self.scene_camera.wait_for_frame(sequence, timeout=1.0)
+            # The camera can be absent at startup, or briefly during a swap /
+            # re-detect, so re-read it every iteration instead of capturing it
+            # once outside the loop.
+            camera = self.scene_camera
+            if camera is None:
+                self._publish_placeholder("scene", "no scene camera")
+                sequence = None
+                time.sleep(0.5)
+                continue
+
+            frame, sequence = camera.wait_for_frame(sequence, timeout=1.0)
             if frame is None:
-                self._publish_placeholder("scene", self.scene_camera.error or "waiting for scene camera")
+                self._publish_placeholder("scene", camera.error or "waiting for scene camera")
                 continue
 
             if self.channels["scene"].viewers <= 0:
@@ -492,6 +565,9 @@ class GlazeApp:
             "scene_stream_fps": cfg.scene_stream_fps,
             "max_tracking_fps": cfg.max_tracking_fps,
             "scene_enabled": self.scene_camera is not None,
+            "camera_swapped": cfg.camera_swapped,
+            "detected_cameras": list(self.detected_cameras),
+            "active_sources": dict(self.active_sources),
             "write_gaze_file": cfg.write_gaze_file,
             "udp_target": cfg.udp_target,
             "pupil_confidence_threshold": cfg.pupil_confidence_threshold,
@@ -654,6 +730,21 @@ class GlazeApp:
                 return {"ok": False, "error": str(exc)}
             return {"ok": True, "gestures": saved}
 
+        if action == "swap_cameras":
+            cfg.camera_swapped = not cfg.camera_swapped
+            config_module.save_runtime_settings(cfg, {"camera_swapped": cfg.camera_swapped})
+            self.log.add("state", "cameras swapped", {"swapped": cfg.camera_swapped})
+            result = self.restart_cameras()
+            result["swapped"] = cfg.camera_swapped
+            # The old calibration mapped gaze onto the *other* camera, so it
+            # is meaningless now - say so rather than letting it silently
+            # point at the wrong things.
+            result["note"] = "recalibrează - calibrarea veche era pentru cealaltă cameră"
+            return result
+
+        if action == "redetect_cameras":
+            return self.restart_cameras()
+
         if action == "conversation_start":
             return self.conversation.start(payload.get("trigger") or "triple_blink")
 
@@ -807,5 +898,8 @@ class GlazeApp:
             self.gestures.enter_threshold = cfg.gaze_zone_enter
         if "gaze_zone_exit" in applied:
             self.gestures.exit_threshold = cfg.gaze_zone_exit
+
+        if applied:
+            config_module.save_runtime_settings(cfg, applied)
 
         return {"ok": True, "applied": applied}

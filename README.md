@@ -61,10 +61,45 @@ python3 tools/list_cameras.py
 ## 3. Pornire
 
 ```bash
-python3 -m glaze --preset lite --eye usb:0 --scene csi
+python3 -m glaze --preset lite
 ```
 
 Apoi, pe laptop: `http://<ip-ul-pi-ului>:8000/`
+
+### Camerele se detectează automat
+
+Implicit, `--eye` și `--scene` sunt pe `auto`: la pornire, aplicația verifică
+ce noduri `/dev/videoN` chiar livrează cadre și le atribuie în ordine — prima
+= ochi, a doua = scenă.
+
+De ce: numerotarea `/dev/videoN` se schimbă când muți o cameră în alt port USB,
+sau chiar doar în funcție de ce a văzut kernelul prima la boot. Indexuri fixe
+în fișierul de service se strică la fiecare replug.
+
+Cele două camere sunt identice ca model, deci nimic din sistem nu poate ști
+care e care. Dacă imaginile apar inversate, apeși **`inversează ochi/scenă`**
+în dashboard — alegerea se salvează în `runtime.json` și se păstrează la
+repornire. Butonul `re-detectează camere` reface scanarea fără să repornești
+serviciul (util după ce ai mutat un cablu).
+
+Poți în continuare forța explicit, iar valoarea explicită bate auto-detecția:
+
+```bash
+python3 -m glaze --eye usb:0 --scene csi
+```
+
+### Setările se salvează
+
+Tot ce schimbi din `/settings` (și inversarea camerelor) se scrie în
+`runtime.json` și se reîncarcă la pornire. Doar o listă albă de parametri e
+persistabilă — porturi și căi rămân controlate din linia de comandă, ca o
+valoare salvată greșit să nu poată face serviciul imposibil de pornit.
+
+Dacă ai stricat ceva din interfață și vrei să te întorci la zero:
+
+```bash
+python3 -m glaze --reset-settings
+```
 
 Presetări:
 

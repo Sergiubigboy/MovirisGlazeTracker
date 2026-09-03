@@ -17,12 +17,19 @@ from dataclasses import dataclass, asdict, field
 @dataclass
 class Config:
     # ---- cameras -------------------------------------------------------
+    # "auto"   -> pick from the cameras that actually deliver frames, in order
+    #             (first = eye, second = scene), flipped by camera_swapped.
+    #             Survives /dev/videoN renumbering when ports change.
     # "usb:N"  -> /dev/videoN through V4L2
     # "csi"    -> Raspberry Pi CSI camera through picamera2
     # "/path/to/file.mp4" -> video file (for testing without hardware)
     # ""       -> disabled
-    eye_source: str = "usb:0"
-    scene_source: str = "csi"
+    eye_source: str = "auto"
+    scene_source: str = "auto"
+    # Which of the two auto-detected cameras is the eye. Toggled by the swap
+    # button and persisted, because the detection order is arbitrary - there
+    # is no way to tell two identical camera modules apart from their nodes.
+    camera_swapped: bool = False
 
     # Capture resolution asked from the driver (not the processing resolution).
     eye_capture_width: int = 640
@@ -129,6 +136,11 @@ class Config:
 
     calibration_path: str = "calibration.json"
     gestures_path: str = "gestures.json"
+    # Settings changed from the web UI are written here and reloaded at
+    # startup. Without this, every tweak - including which camera is the eye -
+    # would be lost on the next reboot, which is useless for a device meant to
+    # be left running.
+    runtime_config_path: str = "runtime.json"
 
     # ---- gestures --------------------------------------------------------
     # How far the pupil must move off centre (in eye-radius units) to count as
@@ -290,6 +302,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="also write gaze_vector.txt like the original script")
     parser.add_argument("--udp", dest="udp_target", help="stream gaze over UDP, host:port")
     parser.add_argument("--save-config", help="write the effective config to this path and exit")
+    parser.add_argument("--reset-settings", action="store_true",
+                        help="discard settings saved from the web UI (runtime.json)")
     return parser
 
 
@@ -320,9 +334,84 @@ def config_from_args(argv=None) -> Config:
     if args.write_gaze_file:
         cfg.write_gaze_file = True
 
+    if args.reset_settings and os.path.exists(cfg.runtime_config_path):
+        os.remove(cfg.runtime_config_path)
+        print("Removed saved settings: " + os.path.abspath(cfg.runtime_config_path))
+
     if args.save_config:
         cfg.save(args.save_config)
         print("Config written to " + os.path.abspath(args.save_config))
         raise SystemExit(0)
 
     return cfg
+
+
+# Settings the web UI may persist. Anything not listed here (ports, paths,
+# camera capture sizes) stays under the command line's control, so a saved
+# value can never make the service impossible to start.
+PERSISTABLE = {
+    "camera_swapped", "flip_eye_vertical", "flip_eye_horizontal",
+    "flip_scene_vertical", "flip_scene_horizontal", "rotate_eye_degrees",
+    "draw_overlay", "roi_mode", "write_gaze_file", "jpeg_quality",
+    "stream_fps", "scene_stream_fps", "max_tracking_fps",
+    "threshold_strict", "threshold_medium", "threshold_relaxed",
+    "pupil_confidence_threshold", "pupil_confidence_threshold_sphere",
+    "min_model_centers", "max_rays", "intersection_ray_count",
+    "minimum_intersection_angle_degrees", "max_stored_intersections",
+    "model_center_average_window", "pupil_min_confidence",
+    "pupil_min_circularity", "pupil_max_area_fraction",
+    "pupil_max_jump_fraction", "pupil_max_eye_radius_fraction",
+    "lash_open_iterations", "gaze_zone_enter", "gaze_zone_exit",
+    "blink_min_ms", "blink_max_ms", "blink_window_ms", "blink_warmup_s",
+    "vision_model", "vision_enabled", "vision_language",
+    "tts_enabled", "tts_voice", "tts_rate", "tts_audio_device",
+    "tts_question_device", "conversation_enabled", "capture_dwell_ms",
+    "capture_move_fraction", "max_captures", "capture_window_s",
+    "answer_dwell_ms", "answer_timeout_ms", "answer_zone_threshold",
+    "pillar_confidence_threshold", "max_options_per_pillar",
+    "menu_dwell_ms", "menu_zone_threshold", "menu_confirm",
+    "menu_cooldown_s", "gaze_log_interval_s",
+}
+
+
+def load_runtime_settings(cfg):
+    """Apply settings previously saved from the web UI. Returns what applied."""
+    path = cfg.runtime_config_path
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            saved = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(saved, dict):
+        return {}
+
+    applied = {}
+    for key, value in saved.items():
+        if key in PERSISTABLE and hasattr(cfg, key):
+            setattr(cfg, key, value)
+            applied[key] = value
+    return applied
+
+
+def save_runtime_settings(cfg, values):
+    """Merge ``values`` into the saved settings file."""
+    path = cfg.runtime_config_path
+    saved = {}
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                loaded = json.load(handle)
+            if isinstance(loaded, dict):
+                saved = loaded
+        except (OSError, ValueError):
+            saved = {}
+
+    saved.update({k: v for k, v in values.items() if k in PERSISTABLE})
+    try:
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(saved, handle, indent=2, sort_keys=True)
+    except OSError:
+        return False
+    return True

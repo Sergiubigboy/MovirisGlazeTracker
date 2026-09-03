@@ -306,6 +306,22 @@ def list_v4l2_devices(max_index=8):
     return devices
 
 
+def readable_device_indices(max_index=10):
+    """Indices of V4L2 nodes that actually deliver a frame, in stable order.
+
+    /dev/videoN numbering is assigned by enumeration order, so it moves when a
+    camera changes USB port, or even just depending on which one the kernel
+    saw first at boot. Rather than pinning numbers that keep going stale, the
+    app asks for the list of nodes that really produce frames and assigns
+    roles by position (see GlazeApp._resolve_camera_sources).
+
+    Nodes that open but return nothing - metadata nodes, unicam's extra
+    entries - are skipped, which is exactly what the readable check catches.
+    """
+    return [device["index"] for device in list_v4l2_devices(max_index)
+            if device["readable"]]
+
+
 def orient(frame, flip_vertical=False, flip_horizontal=False, rotate_degrees=0):
     """Apply the flips/rotation from the config to a frame."""
     if frame is None:
