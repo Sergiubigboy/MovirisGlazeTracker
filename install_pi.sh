@@ -12,12 +12,15 @@ set -euo pipefail
 echo "==> Updating package lists"
 sudo apt-get update
 
-echo "==> Installing OpenCV, NumPy and picamera2"
+echo "==> Installing OpenCV, NumPy, picamera2, and audio/network tools"
 sudo apt-get install -y \
     python3-opencv \
     python3-numpy \
     python3-picamera2 \
-    v4l-utils
+    v4l-utils \
+    espeak-ng \
+    alsa-utils \
+    network-manager
 
 echo "==> Checking imports"
 python3 - <<'PY'
@@ -35,6 +38,10 @@ echo
 echo "==> Detected cameras"
 python3 tools/list_cameras.py || true
 
+echo
+echo "==> Detected audio devices"
+python3 tools/list_audio.py || true
+
 cat <<'EOF'
 
 Done. Start the tracker with:
@@ -49,4 +56,10 @@ To run it at boot:
     sudo nano /etc/systemd/system/glaze.service   # check User= and WorkingDirectory=
     sudo systemctl enable --now glaze
     journalctl -u glaze -f
+
+For a fallback WiFi setup access point when no known network is in range:
+
+    sudo cp wifi-portal.service /etc/systemd/system/
+    sudo nano /etc/systemd/system/wifi-portal.service   # check WorkingDirectory=
+    sudo systemctl enable --now wifi-portal
 EOF

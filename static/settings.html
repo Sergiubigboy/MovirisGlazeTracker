@@ -156,6 +156,27 @@
     </div>
     <input type="text" data-key="vision_model" style="width:100%;background:#21262d;border:1px solid var(--line);border-radius:6px;color:var(--text);padding:6px 8px;font:inherit">
     <div class="field" style="margin-top:10px"><label>cheie API prezentă</label><b id="keyPresent" style="color:var(--muted)">-</b></div>
+    <div class="field"><label>limbă răspuns</label></div>
+    <input type="text" data-key="vision_language" style="width:100%;background:#21262d;border:1px solid var(--line);border-radius:6px;color:var(--text);padding:6px 8px;font:inherit">
+  </section>
+
+  <section class="card">
+    <h2>Voce (text-to-speech)</h2>
+    <p style="color:var(--muted);margin-top:0;font-size:11px">
+      Necesită <code>espeak-ng</code> instalat (<code>sudo apt install espeak-ng</code>)
+      și o boxă USB. Vezi <code>tools/list_audio.py</code> dacă auto-detectarea
+      nu găsește boxa corectă.
+    </p>
+    <div class="field"><label>rostește obiectul identificat</label><input type="checkbox" data-key="tts_enabled"></div>
+    <div class="field"><label>voce (cod limbă espeak-ng)</label><input type="text" style="width:90px" data-key="tts_voice"></div>
+    <div class="field"><label>viteză vorbire<small>cuvinte/min</small></label><input type="number" min="80" max="400" data-key="tts_rate"></div>
+    <div class="field"><label>dispozitiv audio<small>gol = auto-detect</small></label></div>
+    <input type="text" data-key="tts_audio_device" placeholder="plughw:CARD=1,DEV=0"
+           style="width:100%;background:#21262d;border:1px solid var(--line);border-radius:6px;color:var(--text);padding:6px 8px;font:inherit">
+    <div class="field" style="margin-top:8px"><label>dispozitiv auto-detectat</label><b id="ttsDetected" style="color:var(--muted)">-</b></div>
+    <div class="row" style="margin-top:10px">
+      <button onclick="testVoice()">testează vocea</button>
+    </div>
   </section>
 
   <section class="card">
@@ -287,11 +308,20 @@ function connectEvents() {
   source.onerror = function () { source.close(); setTimeout(connectEvents, 1500); };
 }
 
+function testVoice() {
+  send("tts_test", { text: "Salut, te aud bine?" }).then(function (data) {
+    document.getElementById("applyMsg").style.color = data.ok ? "var(--accent)" : "var(--bad)";
+    document.getElementById("applyMsg").textContent = data.ok ? "se redă..." : data.error;
+  });
+}
+
 fetch("/api/config").then(function (r) { return r.json(); }).then(function (cfg) {
   fillForm(cfg);
-  var el = document.getElementById("keyPresent");
-  el.textContent = cfg.vision_key_present ? "da" : "NU - setează GEMINI_API_KEY";
-  el.style.color = cfg.vision_key_present ? "var(--accent)" : "var(--bad)";
+  var keyEl = document.getElementById("keyPresent");
+  keyEl.textContent = cfg.vision_key_present ? "da" : "NU - setează GEMINI_API_KEY";
+  keyEl.style.color = cfg.vision_key_present ? "var(--accent)" : "var(--bad)";
+
+  document.getElementById("ttsDetected").textContent = cfg.tts_device_detected || "niciunul găsit";
 });
 connectEvents();
 </script>

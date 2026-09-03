@@ -28,15 +28,17 @@ import cv2
 ENDPOINT = ("https://generativelanguage.googleapis.com/v1beta/models/"
             "%s:generateContent")
 
-PROMPT = """This image is the forward-facing view of a person wearing an eye tracker.
+PROMPT_TEMPLATE = """This image is the forward-facing view of a person wearing an eye tracker.
 The yellow circle marks where they are looking; its radius is the tracker's
 uncertainty, so the intended object is inside or very near the circle.
 
 Identify which physical object the person is most likely looking at.
 Respond with JSON only, in this exact shape:
-{"objects": [{"name": "<short object name>", "probability": <0..1>}], "scene": "<5 word description>"}
+{{"objects": [{{"name": "<short object name>", "probability": <0..1>}}], "scene": "<5 word description>"}}
 List between 1 and 5 candidates, most likely first, probabilities summing to about 1.
-Use short everyday names a person would say out loud."""
+Write every "name" and "scene" value in {language} - short, everyday words a
+person would say out loud in that language, not a translation of an English
+label."""
 
 
 def load_api_key(explicit=None):
@@ -73,7 +75,7 @@ def annotate_gaze(frame, point, uncertainty=0.12):
 
 
 def ask_gemini(frame, model="gemini-3.5-flash-lite", api_key=None,
-               jpeg_quality=80, timeout=20.0):
+               jpeg_quality=80, timeout=20.0, language="Romanian"):
     """Send one annotated frame. Returns a dict with the parsed answer."""
     key = load_api_key(api_key)
     if not key:
@@ -87,7 +89,7 @@ def ask_gemini(frame, model="gemini-3.5-flash-lite", api_key=None,
     body = {
         "contents": [{
             "parts": [
-                {"text": PROMPT},
+                {"text": PROMPT_TEMPLATE.format(language=language)},
                 {"inline_data": {"mime_type": "image/jpeg",
                                  "data": base64.b64encode(buffer.tobytes()).decode("ascii")}},
             ]

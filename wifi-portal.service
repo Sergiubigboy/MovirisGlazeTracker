@@ -1,0 +1,17 @@
+[Unit]
+Description=Glaze WiFi fallback access point + setup portal
+# Deliberately NOT "Wants=network-online.target" - this service's entire job
+# is to run when there is no network yet.
+After=NetworkManager.service
+Requires=NetworkManager.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/moviris/MovirisGlazeTracker
+ExecStart=/usr/bin/python3 tools/wifi_portal.py --ap-ssid "Glaze-Setup" --ap-password "glaze1234"
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

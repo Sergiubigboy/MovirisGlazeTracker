@@ -146,6 +146,21 @@ class Config:
     # is editable from the settings page so a rename needs no code change.
     vision_model: str = "gemini-3.5-flash-lite"
     vision_enabled: bool = True
+    # Object names come back in this language, and it also picks the espeak
+    # voice - the two must agree, or you get English text read with a
+    # Romanian voice (or vice versa) and it comes out mangled.
+    vision_language: str = "Romanian"
+
+    # ---- text-to-speech ---------------------------------------------------
+    tts_enabled: bool = False
+    # espeak-ng voice code - "ro" for Romanian, "en" for English, etc.
+    tts_voice: str = "ro"
+    tts_rate: int = 165
+    # "" = auto-detect the first USB audio card (see glaze/speech.py). Set
+    # explicitly (e.g. "plughw:CARD=1,DEV=0") if auto-detect picks wrong when
+    # more than one USB audio device is plugged in - tools/list_audio.py
+    # shows what is available.
+    tts_audio_device: str = ""
 
     # Populated at runtime, not user facing.
     extra: dict = field(default_factory=dict)

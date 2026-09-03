@@ -23,6 +23,7 @@ import time
 import cv2
 
 from . import cameras
+from . import speech
 from . import vision
 from . import webserver
 from .calibration import Calibration, Smoother
@@ -387,12 +388,19 @@ class GlazeApp:
                                    self.cfg.flip_scene_horizontal)
             radius = vision.uncertainty_from_calibration(self.calibration)
             marked = vision.annotate_gaze(frame, point, radius)
-            answer = vision.ask_gemini(marked, model=self.cfg.vision_model)
+            answer = vision.ask_gemini(marked, model=self.cfg.vision_model,
+                                       language=self.cfg.vision_language)
             answer["at"] = time.time()
             answer["gaze_point"] = [round(point[0], 3), round(point[1], 3)]
             answer["uncertainty"] = round(radius, 3)
             with self._state_lock:
                 self._last_vision = answer
+
+            if self.cfg.tts_enabled and answer.get("ok") and answer.get("objects"):
+                top = max(answer["objects"], key=lambda o: o.get("probability", 0))
+                speech.speak(top["name"], device=self.cfg.tts_audio_device or None,
+                            voice=self.cfg.tts_voice, rate=self.cfg.tts_rate)
+
             return answer
         finally:
             self._vision_busy = False
@@ -459,7 +467,13 @@ class GlazeApp:
             "gaze_zone_exit": cfg.gaze_zone_exit,
             "vision_model": cfg.vision_model,
             "vision_enabled": cfg.vision_enabled,
+            "vision_language": cfg.vision_language,
             "vision_key_present": vision.load_api_key() is not None,
+            "tts_enabled": cfg.tts_enabled,
+            "tts_voice": cfg.tts_voice,
+            "tts_rate": cfg.tts_rate,
+            "tts_audio_device": cfg.tts_audio_device,
+            "tts_device_detected": speech.detect_usb_audio_device(),
         }
 
     def state(self):
@@ -573,6 +587,16 @@ class GlazeApp:
                 return {"ok": False, "error": str(exc)}
             return {"ok": True, "gestures": saved}
 
+        if action == "tts_test":
+            text = str(payload.get("text") or "Salut, te aud bine?")
+            started = speech.speak(text, device=cfg.tts_audio_device or None,
+                                   voice=cfg.tts_voice, rate=cfg.tts_rate)
+            if not started:
+                return {"ok": False, "error":
+                        "no USB audio device found (or espeak-ng missing) - "
+                        "run tools/list_audio.py on the Pi"}
+            return {"ok": True}
+
         if action == "identify_object":
             # Run it inline here: this is a user pressing a button and
             # waiting for the answer, not the tracking loop.
@@ -603,7 +627,8 @@ class GlazeApp:
         applied = {}
 
         booleans = ("flip_eye_vertical", "flip_eye_horizontal", "flip_scene_vertical",
-                    "flip_scene_horizontal", "draw_overlay", "roi_mode", "write_gaze_file")
+                    "flip_scene_horizontal", "draw_overlay", "roi_mode", "write_gaze_file",
+                    "tts_enabled", "vision_enabled")
         for key in booleans:
             if key in values:
                 setattr(cfg, key, bool(values[key]))
@@ -641,6 +666,7 @@ class GlazeApp:
             "lash_open_iterations": (int, 0, 4),
             "gaze_zone_enter": (float, 0.05, 2.0),
             "gaze_zone_exit": (float, 0.0, 1.0),
+            "tts_rate": (int, 80, 400),
         }
         for key, (cast, low, high) in numbers.items():
             if key in values:
@@ -656,6 +682,15 @@ class GlazeApp:
                 return {"ok": False, "error": "invalid model name"}
             cfg.vision_model = name
             applied["vision_model"] = name
+
+        for key, max_len in (("vision_language", 40), ("tts_voice", 10),
+                             ("tts_audio_device", 60)):
+            if key in values:
+                text = str(values[key]).strip()
+                if len(text) > max_len:
+                    return {"ok": False, "error": "%s too long" % key}
+                setattr(cfg, key, text)
+                applied[key] = text
 
         if "thresholds" in values:
             try:

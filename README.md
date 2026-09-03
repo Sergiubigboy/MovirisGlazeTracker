@@ -394,7 +394,75 @@ python3 -m glaze --eye upstream/eye_test.mp4 --scene "" --port 8000
 
 ---
 
-## 8. Probleme frecvente
+## 8. WiFi de rezervă (fără rețea = access point propriu)
+
+Dacă Pi-ul nu găsește nicio rețea cunoscută (mutat la altă locație, WiFi nou),
+un serviciu separat îi pune singur radioul în mod access point și servește o
+pagină de configurare, complet independent de `glaze` (rulează chiar dacă
+tracker-ul e oprit/stricat).
+
+```bash
+sudo cp wifi-portal.service /etc/systemd/system/
+sudo nano /etc/systemd/system/wifi-portal.service   # verifică WorkingDirectory=
+sudo systemctl enable --now wifi-portal
+```
+
+Cum funcționează: după 3 verificări eșuate la rând (~30s), Pi-ul pornește o
+rețea proprie `Glaze-Setup` (parolă `glaze1234` — schimb-o în
+`wifi-portal.service`, la `--ap-password`). Te conectezi la ea de pe telefon
+sau laptop, deschizi `http://10.42.0.1/`, pui SSID-ul și parola rețelei tale,
+apasă Conectează. Pi-ul încearcă, iar dacă merge, AP-ul dispare și pagina de
+setup nu mai e accesibilă — normal, Pi-ul s-a mutat pe rețeaua nouă.
+
+Dacă rețeaua veche revine în rază cât Pi-ul e în mod AP, serviciul verifică
+automat la fiecare 2 minute (coboară AP-ul câteva secunde, testează, îl repune
+dacă nu găsește nimic).
+
+```bash
+python3 tools/wifi_portal.py --help   # toate opțiunile (SSID, parolă, timing)
+journalctl -u wifi-portal -f          # ce face acum
+```
+
+---
+
+## 9. Voce + identificare vorbită a obiectelor
+
+`identify_object` (din gesturi sau din pagina `/gestures`) poate **rosti**
+numele obiectului găsit, prin orice boxă USB cu ieșire jack, folosind
+`espeak-ng` (instalat de `install_pi.sh`).
+
+```bash
+python3 tools/list_audio.py   # ce card ALSA are boxa ta
+```
+
+Activezi din `/settings` → secțiunea "Voce": bifează, alege vocea (`ro` sau
+`en`, orice cod suportat de espeak-ng), testează cu butonul dedicat. Dacă ai
+mai multe dispozitive audio USB, pune manual `plughw:CARD=N,DEV=0` (numărul
+exact din `list_audio.py`) — altfel se auto-detectează primul găsit.
+
+Limba răspunsului de la modelul de viziune (`vision_language`, tot din
+`/settings`) trebuie să fie aceeași cu vocea — altfel iese text românesc citit
+cu voce engleză sau invers, ininteligibil.
+
+### Despre alimentare cu boxa USB adăugată
+
+O boxă USB-audio consumă puțin (~50-100mA), mult sub o cameră. Problema nu e
+boxa în sine, ci **dacă hub-ul e alimentat separat sau trage tot din portul
+Pi-ului**. Pi 3A+ are un singur port USB; cu 2 camere deja pe hub, verifică
+după ce bagi și boxa:
+
+```bash
+vcgencmd get_throttled
+```
+
+`throttled=0x0` = totul e ok. Orice altă valoare = subalimentare — fie iei un
+**hub alimentat** (cu adaptor propriu la priză), fie treci camera de scenă pe
+alt port dacă ai, fie folosești o sursă mai puternică pentru Pi (5V/3A oficial
+Raspberry).
+
+---
+
+## 10. Probleme frecvente
 
 **„could not open USB camera index 0"** — vezi ce index are:
 `python3 tools/list_cameras.py`. Camera CSI ocupă și ea `/dev/video0` uneori,
@@ -420,7 +488,7 @@ toate direcțiile; `rays` trebuie să crească spre 100.
 
 ---
 
-## 9. Structura proiectului
+## 11. Structura proiectului
 
 ```
 glaze/
@@ -428,12 +496,19 @@ glaze/
   tracker_core.py   detectorul portat (algoritmul lui Orlosky)
   cameras.py        USB/V4L2, CSI/picamera2, fișier video — fiecare pe threadul lui
   calibration.py    mapare privire → ecran/scenă (least squares) + netezire
+  gestures.py       privire+clipit → simboluri → tipare → acțiuni
+  vision.py         poză + gaze point → Gemini → obiecte cu probabilități
+  speech.py         text-to-speech prin espeak-ng, pe un dispozitiv audio anume
   webserver.py      server HTTP din stdlib: MJPEG + SSE + API
-  app.py            legătura dintre camere, tracker și web
-static/index.html   interfața
-tools/bench.py      benchmark pe fișier video
+  app.py            legătura dintre camere, tracker, gesturi, viziune și web
+static/index.html    dashboard
+static/settings.html toți parametrii, live, plus poweroff/reboot
+static/gestures.html construiește tipare de gesturi + „la ce mă uit?"
+tools/bench.py        benchmark pe fișier video
 tools/list_cameras.py
-upstream/           codul original, ca referință
+tools/list_audio.py   ce carduri ALSA vede Pi-ul
+tools/wifi_portal.py  access point de rezervă + pagină de configurare WiFi
+upstream/              codul original, ca referință
 ```
 
 ---
