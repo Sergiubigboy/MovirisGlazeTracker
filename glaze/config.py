@@ -70,6 +70,27 @@ class Config:
     max_stored_intersections: int = 1500
     model_center_average_window: int = 200
 
+    # ---- pupil plausibility gates ----------------------------------------
+    # Upstream always reported whatever ellipse fitted best, however bad, so a
+    # closed eye still produced a confident "pupil" sitting on the lid crease
+    # or a clump of eyelashes - which also made blink detection impossible.
+    # A candidate now has to survive these before it counts as a pupil.
+    pupil_min_confidence: float = 0.35   # share of contour lying on the ellipse
+    pupil_min_circularity: float = 0.45  # minor/major axis; lashes are streaks
+    pupil_max_area_fraction: float = 0.35  # of the processing frame
+    # A pupil cannot teleport across the frame between two frames. A weak
+    # candidate that did is a lash/lid lock-on, not a saccade - so the jump
+    # limit only applies below pupil_jump_trust_confidence, letting a
+    # genuinely confident fast saccade through.
+    pupil_max_jump_fraction: float = 0.35  # of the processing width, per frame
+    pupil_jump_trust_confidence: float = 0.60
+    # Forget the previous position after this long without a pupil, so
+    # re-acquisition anywhere in the frame is allowed after a real blink.
+    pupil_track_timeout_s: float = 0.5
+    # Eyelashes are thin and dark; an opening (erode then dilate) removes them
+    # before the dilation that would otherwise fatten them into blobs.
+    lash_open_iterations: int = 1
+
     # ---- blink detection -------------------------------------------------
     # A blink is a "no pupil found" streak whose duration lands in this
     # window - short enough to not be tracking loss (glasses moved, eye out
@@ -102,6 +123,21 @@ class Config:
     udp_target: str = ""
 
     calibration_path: str = "calibration.json"
+    gestures_path: str = "gestures.json"
+
+    # ---- gestures --------------------------------------------------------
+    # How far the pupil must move off centre (in eye-radius units) to count as
+    # looking left/right/up/down, and how far back it must come before that
+    # direction can fire again.
+    gaze_zone_enter: float = 0.35
+    gaze_zone_exit: float = 0.20
+
+    # ---- vision model ----------------------------------------------------
+    # The API key is NOT stored here - it comes from the GEMINI_API_KEY
+    # environment variable or a gitignored gemini_key.txt, so the settings
+    # page can never read it back out.
+    vision_model: str = "gemini-2.5-flash-lite"
+    vision_enabled: bool = True
 
     # Populated at runtime, not user facing.
     extra: dict = field(default_factory=dict)

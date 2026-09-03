@@ -402,12 +402,21 @@ class TrackingResult:
     # True while the eye has been undetected for a blink-length streak.
     blinking: bool = False
     # Confirmed blinks (full close-open cycles) within the trailing window.
+    # This one both decays and gets consumed by triple_blink, so it is for
+    # display only - never count edges off it.
     blink_count_recent: int = 0
+    # Monotonic blink count since the last reset. The gesture engine watches
+    # this, so a blink is never lost to window decay or to the triple-blink
+    # counter being cleared.
+    blink_total: int = 0
     # One-frame pulse: just reached 3 blinks within the window.
     triple_blink: bool = False
     # False during the warm-up period right after a model reset, so gesture
     # detection doesn't fire while the eye-sphere is still settling.
     armed: bool = False
+    # Why a candidate was accepted or rejected - shown in the UI so the
+    # plausibility gates can be tuned against real hardware.
+    metrics: dict = field(default_factory=dict)
 
     def to_dict(self):
         def rounded(seq, digits=4):
@@ -434,8 +443,10 @@ class TrackingResult:
             "rays": self.ray_count,
             "blinking": self.blinking,
             "blink_count_recent": self.blink_count_recent,
+            "blink_total": self.blink_total,
             "triple_blink": self.triple_blink,
             "armed": self.armed,
+            "metrics": self.metrics,
         }
 
 
@@ -464,6 +475,9 @@ class EyeTracker:
         self.ellipse_thin = max(2, int(round(4 * scale)))
         self.intersection_pixel_limit = max(8, int(round(30 * scale)))
         self.thresholds = (cfg.threshold_strict, cfg.threshold_medium, cfg.threshold_relaxed)
+        # Small kernel: an opening with the main kernel would eat the pupil too.
+        self.open_kernel = np.ones((3, 3), np.uint8)
+        self.max_contour_area = cfg.pupil_max_area_fraction * cfg.proc_width * cfg.proc_height
 
     def reset(self):
         """Upstream ``reset_tracking_state``."""
@@ -487,6 +501,9 @@ class EyeTracker:
         self._blink_active = False
         self._blink_start = 0.0
         self._blink_events = []
+        self.blink_total = 0
+        self._last_pupil_center = None
+        self._last_pupil_time = 0.0
 
     # -- controls -------------------------------------------------------
     def toggle_sphere_adjustment(self):
@@ -615,6 +632,7 @@ class EyeTracker:
             duration_ms = (now - self._blink_start) * 1000.0
             if cfg.blink_min_ms <= duration_ms <= cfg.blink_max_ms:
                 self._blink_events.append(now)
+                self.blink_total += 1
 
         window_s = cfg.blink_window_ms / 1000.0
         self._blink_events = [t for t in self._blink_events if now - t <= window_s]
@@ -624,13 +642,26 @@ class EyeTracker:
             triple = True
             self._blink_events = []  # consume so it fires once, not every frame
 
-        return self._blink_active, len(self._blink_events), triple, armed
+        return self._blink_active, len(self._blink_events), triple, armed, self.blink_total
 
     # -- per frame ------------------------------------------------------
-    def process_frame(self, frame, draw=True):
-        """Detect the pupil in one BGR frame and update the 3D eye model."""
+    def process_frame(self, frame, draw=True, timestamp=None):
+        """Detect the pupil in one BGR frame and update the 3D eye model.
+
+        ``timestamp`` overrides the wall clock. Live capture leaves it None;
+        offline analysis passes the frame's real presentation time, otherwise
+        blink durations are measured against how fast the file decodes rather
+        than against the video's own timeline.
+        """
         started = time.perf_counter()
+        now = time.time() if timestamp is None else float(timestamp)
         cfg = self.cfg
+
+        # Drop a stale position reference so the jump gate does not block
+        # re-acquiring the pupil somewhere else after a real blink.
+        if (self._last_pupil_center is not None
+                and now - self._last_pupil_time > cfg.pupil_track_timeout_s):
+            self._last_pupil_center = None
 
         frame = crop_to_aspect_ratio(frame, cfg.proc_width, cfg.proc_height)
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
@@ -647,7 +678,7 @@ class EyeTracker:
             offset = (0, 0)
 
         best = self._select_best_contour(work, darkest_value, cfg.roi_mode, darkest_point, offset)
-        contour, confidence, center = best
+        contour, confidence, center, metrics = best
 
         pupil_ellipse = None
         if contour is not None:
@@ -693,7 +724,6 @@ class EyeTracker:
                 if len(self.stuck_ellipses) > 20:
                     self.stuck_ellipses = self.stuck_ellipses[-20:]
 
-        now = time.time()
         if self._last_time is not None:
             delta = now - self._last_time
             if delta > 0:
@@ -711,10 +741,13 @@ class EyeTracker:
             sphere_radius=float(self.max_observed_distance),
             sphere_locked=not self.eye_sphere_adjustment_enabled,
             ray_count=len(self.ray_lines),
+            metrics=metrics,
         )
 
         if pupil_ellipse is not None and center is not None:
             result.ok = True
+            self._last_pupil_center = center
+            self._last_pupil_time = now
             result.pupil_center = (float(pupil_ellipse[0][0]), float(pupil_ellipse[0][1]))
             result.pupil_axes = (float(pupil_ellipse[1][0]), float(pupil_ellipse[1][1]))
             result.pupil_angle = float(pupil_ellipse[2])
@@ -735,11 +768,12 @@ class EyeTracker:
                 (center[1] - model_center_average[1]) / radius,
             )
 
-        blinking, blink_count, triple, armed = self._update_blink(result.ok, now)
+        blinking, blink_count, triple, armed, total = self._update_blink(result.ok, now)
         result.blinking = blinking
         result.blink_count_recent = blink_count
         result.triple_blink = triple
         result.armed = armed
+        result.blink_total = total
 
         if draw:
             self._draw_overlay(frame, result, model_center_average, center, pupil_ellipse)
@@ -754,11 +788,22 @@ class EyeTracker:
         best_goodness = 0.0
         best_ratio = 0.0
         best_center = None
+        best_metrics = {}
+        rejected = {}
+        frame_area = float(self.cfg.proc_width * self.cfg.proc_height)
 
         for added in self.thresholds:
             binary = apply_binary_threshold(work_gray, darkest_value, added)
             if not roi_mode:
                 binary = mask_outside_square(binary, darkest_point, self.mask_square)
+
+            # Eyelashes are thin dark streaks. Opening (erode then dilate)
+            # deletes structures thinner than the kernel while leaving the
+            # pupil - which is big and solid - essentially untouched. Without
+            # it, the dilation below fattens lashes into pupil-sized blobs.
+            if self.cfg.lash_open_iterations > 0:
+                binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, self.open_kernel,
+                                          iterations=self.cfg.lash_open_iterations)
 
             dilated = cv2.dilate(binary, self.kernel, iterations=self.dilate_iterations)
             contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -769,19 +814,58 @@ class EyeTracker:
                 continue
 
             contour = reduced[0]
+            ellipse = cv2.fitEllipse(contour)
+            axis_a, axis_b = ellipse[1]
+            if axis_a <= 0 or axis_b <= 0:
+                continue
+
+            # Reject implausible pupils before they can win the contest: a
+            # pupil is roughly round and cannot cover a third of the frame.
+            # A lash clump or lid crease fails one or both.
+            circularity = min(axis_a, axis_b) / max(axis_a, axis_b)
+            area = math.pi * axis_a * axis_b / 4.0
+            if circularity < self.cfg.pupil_min_circularity:
+                rejected["circularity"] = round(circularity, 3)
+                continue
+            if area > self.max_contour_area:
+                rejected["area"] = int(area)
+                continue
+
             goodness = check_ellipse_goodness(dilated, contour)
             pixels = check_contour_pixels(contour, dilated.shape,
                                           self.ellipse_thick, self.ellipse_thin)
 
-            final_goodness = goodness[0] * pixels[0] * pixels[0] * pixels[1]
+            # goodness[2] (roundness) was computed upstream but never used;
+            # folding it in makes the rounder candidate win a close contest.
+            final_goodness = goodness[0] * pixels[0] * pixels[0] * pixels[1] * goodness[2]
             if final_goodness > 0 and final_goodness > best_goodness:
-                ellipse = cv2.fitEllipse(contour)
                 best_goodness = final_goodness
                 best_ratio = pixels[1]
                 best_contour = contour
                 best_center = (int(ellipse[0][0]) + offset[0], int(ellipse[0][1]) + offset[1])
+                best_metrics = {"circularity": round(circularity, 3),
+                                "area_fraction": round(area / frame_area, 3)}
 
-        return best_contour, best_ratio, best_center
+        # Final gate: a weak fit is not a pupil, it is a closed eye or noise.
+        if best_contour is not None and best_ratio < self.cfg.pupil_min_confidence:
+            rejected["confidence"] = round(best_ratio, 3)
+            best_contour, best_center = None, None
+
+        # Temporal gate: an unconvincing candidate that jumped across the
+        # frame is a lash or lid lock-on, not a saccade.
+        if (best_contour is not None
+                and best_ratio < self.cfg.pupil_jump_trust_confidence
+                and self._last_pupil_center is not None):
+            jump = math.hypot(best_center[0] - self._last_pupil_center[0],
+                              best_center[1] - self._last_pupil_center[1])
+            if jump > self.cfg.pupil_max_jump_fraction * self.cfg.proc_width:
+                rejected["jump"] = int(jump)
+                best_contour, best_center = None, None
+
+        if best_contour is None and rejected:
+            best_metrics = {"rejected": rejected}
+
+        return best_contour, best_ratio, best_center, best_metrics
 
     def _draw_overlay(self, frame, result, model_center, center, pupil_ellipse):
         """Same overlay upstream drew, written onto the frame we stream."""

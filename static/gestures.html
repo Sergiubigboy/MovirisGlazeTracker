@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glaze - gestures</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --line: #262d36; --text: #e6edf3;
+    --muted: #8b949e; --accent: #4ade80; --warn: #f0b429; --bad: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+           padding: 14px 20px; border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 16px; letter-spacing: .08em; text-transform: uppercase; }
+  header a { color: var(--accent); text-decoration: none; }
+  header .spacer { margin-left: auto; }
+
+  main { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+         gap: 16px; padding: 16px 20px; max-width: 1300px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+          padding: 14px; margin-bottom: 16px; }
+  .card h2 { margin: 0 0 12px; font-size: 12px; letter-spacing: .1em;
+             text-transform: uppercase; color: var(--muted); }
+
+  button { font: inherit; color: var(--text); background: #21262d;
+           border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  button:hover { border-color: #3d444d; }
+  button.primary { border-color: var(--accent); color: var(--accent); }
+  button.danger { border-color: var(--bad); color: var(--bad); }
+  button.token { min-width: 42px; font-size: 16px; padding: 8px; }
+
+  input, select { font: inherit; color: var(--text); background: #21262d;
+                  border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+  input[type=text] { width: 100%; }
+  input[type=number] { width: 90px; }
+
+  .gesture { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .gesture.disabled { opacity: .5; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  .grid label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 3px; }
+  .seq { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+  .chip { background: #21262d; border: 1px solid var(--accent); color: var(--accent);
+          border-radius: 6px; padding: 4px 10px; font-size: 15px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+  .live { font-size: 22px; letter-spacing: .18em; color: var(--accent); min-height: 30px; }
+  .statline { display: flex; justify-content: space-between; color: var(--muted); padding: 2px 0; }
+  .statline b { color: var(--text); font-weight: normal; }
+  .obj { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid var(--line); }
+  .bar { height: 4px; background: var(--accent); border-radius: 2px; margin-top: 2px; }
+  #log { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Glaze / gestures</h1>
+  <span id="log"></span>
+  <span class="spacer"></span>
+  <a href="/">dashboard</a> &nbsp;<a href="/settings">settings</a>
+</header>
+
+<main>
+  <div>
+    <section class="card">
+      <h2>Gesturile tale</h2>
+      <div id="list"></div>
+      <div class="row">
+        <button onclick="addGesture()">+ gest nou</button>
+        <button class="primary" onclick="saveAll()">salvează tot</button>
+      </div>
+    </section>
+  </div>
+
+  <div>
+    <section class="card">
+      <h2>Live</h2>
+      <div class="statline"><span>zonă privire</span><b id="zone">-</b></div>
+      <div class="statline"><span>tracking</span><b id="ok">-</b></div>
+      <div class="statline"><span>gesturi armate</span><b id="armed">-</b></div>
+      <p style="color:var(--muted);margin:10px 0 2px;font-size:11px">ultimele semnale detectate</p>
+      <div class="live" id="tokens">-</div>
+    </section>
+
+    <section class="card">
+      <h2>Gesturi declanșate</h2>
+      <div id="history" style="color:var(--muted)">încă niciunul</div>
+    </section>
+
+    <section class="card">
+      <h2>La ce mă uit?</h2>
+      <div class="row">
+        <button onclick="identify()">întreabă acum</button>
+        <span id="visionBusy" style="color:var(--warn)"></span>
+      </div>
+      <div id="vision" style="margin-top:10px;color:var(--muted)">niciun rezultat încă</div>
+    </section>
+  </div>
+</main>
+
+<script>
+"use strict";
+
+var TOKENS = [
+  ["L", "stânga"], ["R", "dreapta"], ["U", "sus"], ["D", "jos"],
+  ["C", "centru"], ["B", "clipit"]
+];
+var ACTIONS = [
+  ["identify_object", "întreabă AI ce obiect e"],
+  ["reset_model", "resetează modelul"],
+  ["toggle_sphere", "blochează/deblochează sfera"],
+  ["save_calibration", "salvează calibrarea"],
+  ["webhook", "trimite POST la un URL"],
+  ["nothing", "nimic (doar testez)"]
+];
+
+var gestures = [];
+
+function log(msg) { document.getElementById("log").textContent = msg || ""; }
+
+function post(action, extra) {
+  return fetch("/api/command", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(Object.assign({ action: action }, extra || {}))
+  }).then(function (r) { return r.json(); });
+}
+
+function render() {
+  var host = document.getElementById("list");
+  host.innerHTML = "";
+
+  gestures.forEach(function (g, i) {
+    var el = document.createElement("div");
+    el.className = "gesture" + (g.enabled ? "" : " disabled");
+
+    var seq = g.tokens.map(function (t, k) {
+      return '<span class="chip">' + t + '</span>';
+    }).join("");
+
+    el.innerHTML =
+      '<div class="row">' +
+        '<input type="text" value="' + (g.name || "") + '" data-f="name" style="flex:1">' +
+        '<button onclick="toggleG(' + i + ')">' + (g.enabled ? "activ" : "oprit") + '</button>' +
+        '<button class="danger" onclick="delG(' + i + ')">șterge</button>' +
+      '</div>' +
+      '<div class="seq">' + (seq || '<span style="color:var(--muted)">gol</span>') +
+        '<button onclick="popToken(' + i + ')">&larr;</button></div>' +
+      '<div class="row">' +
+        TOKENS.map(function (t) {
+          return '<button class="token" title="' + t[1] + '" onclick="addToken(' + i + ',\'' + t[0] + '\')">' + t[0] + '</button>';
+        }).join("") +
+      '</div>' +
+      '<div class="grid">' +
+        '<div><label>în cel mult (ms)</label><input type="number" value="' + g.window_ms + '" data-f="window_ms"></div>' +
+        '<div><label>pauză după (ms)</label><input type="number" value="' + g.cooldown_ms + '" data-f="cooldown_ms"></div>' +
+        '<div style="grid-column:1/-1"><label>acțiune</label>' +
+          '<select data-f="action">' + ACTIONS.map(function (a) {
+            return '<option value="' + a[0] + '"' + (g.action === a[0] ? " selected" : "") + '>' + a[1] + '</option>';
+          }).join("") + '</select></div>' +
+        '<div style="grid-column:1/-1"><label>URL (doar pentru webhook)</label>' +
+          '<input type="text" value="' + (g.action_arg || "") + '" data-f="action_arg"></div>' +
+      '</div>';
+
+    // Bind edits back into the model.
+    el.querySelectorAll("[data-f]").forEach(function (input) {
+      input.addEventListener("change", function () {
+        var field = input.dataset.f;
+        gestures[i][field] = (input.type === "number") ? parseInt(input.value, 10) : input.value;
+      });
+    });
+
+    host.appendChild(el);
+  });
+}
+
+function addGesture() {
+  gestures.push({ name: "gest nou", tokens: [], window_ms: 2500,
+                  cooldown_ms: 3000, action: "nothing", action_arg: "", enabled: true });
+  render();
+}
+function delG(i) { gestures.splice(i, 1); render(); }
+function toggleG(i) { gestures[i].enabled = !gestures[i].enabled; render(); }
+function addToken(i, t) { gestures[i].tokens.push(t); render(); }
+function popToken(i) { gestures[i].tokens.pop(); render(); }
+
+function saveAll() {
+  post("gestures_set", { gestures: gestures }).then(function (data) {
+    if (data.ok) { gestures = data.gestures; render(); log("salvat"); }
+    else log(data.error);
+  });
+}
+
+function identify() {
+  log("întreb modelul...");
+  post("identify_object").then(function (data) {
+    log(data.ok ? "" : (data.error || "eroare"));
+  });
+}
+
+function renderVision(v, busy) {
+  document.getElementById("visionBusy").textContent = busy ? "se procesează..." : "";
+  var host = document.getElementById("vision");
+  if (!v) { host.textContent = "niciun rezultat încă"; return; }
+  if (!v.ok) { host.innerHTML = '<span style="color:var(--bad)">' + (v.error || "eroare") + "</span>"; return; }
+
+  var rows = (v.objects || []).map(function (o) {
+    var pct = Math.round((o.probability || 0) * 100);
+    return '<div class="obj"><span style="color:var(--text)">' + o.name + "</span><span>" + pct + "%</span></div>" +
+           '<div class="bar" style="width:' + pct + '%"></div>';
+  }).join("");
+
+  host.innerHTML = (rows || "<i>fără obiecte</i>") +
+    '<p style="margin:8px 0 0;font-size:11px">' + (v.scene || "") +
+    " &middot; acum " + v.seconds_ago + "s</p>";
+}
+
+function renderState(s) {
+  document.getElementById("zone").textContent = s.gestures.zone;
+  document.getElementById("ok").textContent = s.ok ? "da" : "nu";
+  document.getElementById("armed").textContent = s.armed ? "da" : "nu (warmup)";
+  document.getElementById("tokens").textContent = s.gestures.recent_tokens.join(" ") || "-";
+
+  var hist = s.gestures.history;
+  document.getElementById("history").innerHTML = hist.length
+    ? hist.map(function (h) {
+        return '<div class="statline"><span>' + h.name + "</span><b>" + h.seconds_ago + "s</b></div>";
+      }).join("")
+    : "încă niciunul";
+
+  renderVision(s.vision, s.vision_busy);
+}
+
+function connectEvents() {
+  var source = new EventSource("/events");
+  source.onmessage = function (e) {
+    try { renderState(JSON.parse(e.data)); } catch (err) { /* partial */ }
+  };
+  source.onerror = function () { source.close(); setTimeout(connectEvents, 1500); };
+}
+
+post("gestures_get").then(function (data) {
+  gestures = (data.gestures || []).map(function (g) {
+    return Object.assign({ action_arg: "", cooldown_ms: 3000 }, g);
+  });
+  render();
+});
+connectEvents();
+</script>
+</body>
+</html>

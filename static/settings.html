@@ -68,7 +68,7 @@
 <header>
   <h1>Glaze / settings</h1>
   <span id="log"></span>
-  <a href="/">&larr; dashboard</a>
+  <a href="/">&larr; dashboard</a> &nbsp;<a href="/gestures" style="margin-left:0">gesturi</a>
 </header>
 
 <div id="applyBar">
@@ -86,6 +86,7 @@
     <div class="statline"><span>ochi închis acum</span><b id="stBlinking">-</b></div>
     <div class="statline"><span>clipiri (fereastră curentă)</span><b id="stBlinkCount">-</b></div>
     <div class="statline"><span>ultimul triplu-clipit</span><b id="stTriple">-</b></div>
+    <div class="statline"><span>metrici detecție</span><b id="stMetrics">-</b></div>
   </section>
 
   <section class="card">
@@ -128,6 +129,25 @@
     <div class="field"><label>intersecții stocate max</label><input type="number" min="50" max="5000" data-key="max_stored_intersections"></div>
     <div class="field"><label>fereastră medie centru ochi</label><input type="number" min="5" max="1000" data-key="model_center_average_window"></div>
     <div class="field"><label>netezire cursor scenă<small>0.05-1.0</small></label><input type="number" step="0.05" min="0.05" max="1" data-key="smoothing"></div>
+  </section>
+
+  <section class="card">
+    <h2>Anti-gene / respingere detecții false</h2>
+    <p style="color:var(--muted);margin-top:0;font-size:11px">
+      Astea decid când o detecție NU e pupilă. Dacă vezi elipsa pe gene sau
+      pleoapă, crește pragurile. Dacă pierde pupila prea des, scade-le.
+    </p>
+    <div class="field"><label>încredere minimă<small>sub asta = ochi închis</small></label><input type="number" step="0.05" min="0" max="1" data-key="pupil_min_confidence"></div>
+    <div class="field"><label>rotunjime minimă<small>genele sunt alungite</small></label><input type="number" step="0.05" min="0" max="1" data-key="pupil_min_circularity"></div>
+    <div class="field"><label>arie maximă (fracție cadru)</label><input type="number" step="0.05" min="0.02" max="1" data-key="pupil_max_area_fraction"></div>
+    <div class="field"><label>salt maxim per frame<small>fracție din lățime</small></label><input type="number" step="0.05" min="0.05" max="2" data-key="pupil_max_jump_fraction"></div>
+    <div class="field"><label>iterații curățare gene<small>0 = oprit</small></label><input type="number" min="0" max="4" data-key="lash_open_iterations"></div>
+  </section>
+
+  <section class="card">
+    <h2>Zone privire (pentru gesturi)</h2>
+    <div class="field"><label>prag intrare în zonă</label><input type="number" step="0.05" min="0.05" max="2" data-key="gaze_zone_enter"></div>
+    <div class="field"><label>prag revenire la centru</label><input type="number" step="0.05" min="0" max="1" data-key="gaze_zone_exit"></div>
   </section>
 
   <section class="card">
@@ -229,6 +249,19 @@ function renderState(s) {
   document.getElementById("stBlinkCount").textContent = s.blink_count_recent;
   document.getElementById("stTriple").textContent =
     s.last_triple_blink_seconds_ago === null ? "niciodată" : (s.last_triple_blink_seconds_ago.toFixed(1) + "s în urmă");
+
+  var m = s.metrics || {};
+  var el = document.getElementById("stMetrics");
+  if (m.rejected) {
+    el.style.color = "var(--warn)";
+    el.textContent = "respins: " + Object.keys(m.rejected)
+      .map(function (k) { return k + "=" + m.rejected[k]; }).join(" ");
+  } else if (m.circularity !== undefined) {
+    el.style.color = "var(--text)";
+    el.textContent = "rotunjime " + m.circularity + "  arie " + m.area_fraction;
+  } else {
+    el.textContent = "-";
+  }
 }
 
 function connectEvents() {

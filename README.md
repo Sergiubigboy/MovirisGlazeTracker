@@ -142,6 +142,35 @@ diferite ca să estimeze centrul sferei ochiului (`rays` ajunge la 100,
 `sphere radius` se stabilizează). Apoi apasă `lock sphere` și calibrează —
 altfel modelul se mai mișcă sub tine în timpul calibrării.
 
+### Problema cu genele (important)
+
+Detectorul original raporta **întotdeauna** cea mai bună elipsă găsită, oricât
+de proastă — nu exista niciun prag sub care să spună "asta nu e o pupilă". Pe
+clipul de test asta însemna `ok=True` pe **toate** cele 1033 de cadre, inclusiv
+când ochiul era închis și elipsa stătea pe pleoapă sau pe un smoc de gene.
+Efect secundar: detecția de clipit nu se putea declanșa niciodată, pentru că
+pupila nu se "pierdea" niciodată.
+
+Ce am adăugat ca să respingă genele:
+
+| Filtru | Ce respinge |
+|---|---|
+| `lash_open_iterations` | Curățare morfologică (opening) care șterge structurile subțiri *înainte* de dilatare — genele sunt subțiri, pupila nu. Fără el, dilatarea le îngroșa în blob-uri cât o pupilă. |
+| `pupil_min_confidence` | Potriviri slabe = ochi închis, nu pupilă |
+| `pupil_min_circularity` | Genele și cutele pleoapei sunt alungite, pupila e rotundă |
+| `pupil_max_area_fraction` | Umbre mari de pleoapă care acopereau un sfert din cadru |
+| `pupil_max_jump_fraction` | Pupila nu se teleportează: o detecție slabă care a sărit în cealaltă parte a cadrului e o agățare de gene |
+
+Pe clipul de test, rata de `ok` a scăzut de la 1.000 la 0.881 și au apărut 24
+de clipiri detectate în 43s (26/min, plauzibil pentru un om).
+
+**Toate pragurile astea sunt reglabile live** din `/settings`, iar pagina
+afișează metricile cadrului curent (rotunjime, arie) și motivul respingerii —
+folosește-le ca să calibrezi pe camera ta, nu pe a mea:
+
+- vezi elipsa pe gene → **crește** `pupil_min_confidence` / `pupil_min_circularity`
+- pierde pupila prea des → **scade-le**
+
 ### Detecție clipit (`blinking`, `triple_blink`)
 
 Trackerul detectează clipitul din simpla absență a pupilei: dacă elipsa nu e
@@ -159,6 +188,68 @@ Starea `armed` din `/api/state` arată dacă gesturile sunt active acum.
 
 Toți parametrii ăștia (praguri de durată, fereastră, warmup) sunt reglabili
 live din [`/settings`](#pagina-de-setari), fără restart.
+
+### Gesturi (`/gestures`)
+
+Trackerul transformă privirea într-un flux de simboluri discrete, iar tu
+definești tipare peste ele:
+
+| Simbol | Înseamnă |
+|---|---|
+| `L` `R` `U` `D` | privirea a intrat în zona stânga/dreapta/sus/jos |
+| `C` | privirea a revenit în centru |
+| `B` | o clipire confirmată |
+
+Un gest = o secvență de simboluri + un timp maxim în care trebuie completată +
+o pauză după declanșare (ca să nu se repete). Exemplu: `L R L R` în 4000ms, sau
+`B B B` în 1500ms.
+
+O direcție emite un simbol **o singură dată** la intrarea în zonă — privirea
+trebuie să treacă înapoi prin centru înainte ca aceeași direcție să se poată
+declanșa din nou (altfel o privire parcată lângă prag ar emite simboluri la
+fiecare cadru). Trecerile prin centru sunt ignorate automat la potrivire, dacă
+nu pui `C` explicit în tipar — altfel `L R L R` n-ar merge niciodată, pentru
+că stream-ul real e `L C R C L C R`.
+
+Acțiuni disponibile pentru fiecare gest: întreabă modelul AI ce obiect e,
+resetează modelul, blochează/deblochează sfera, salvează calibrarea, trimite un
+POST la un URL al tău (pentru integrări proprii), sau nimic (util cât testezi
+un tipar nou — vezi în pagină când se declanșează, fără să facă ceva).
+
+Gesturile se salvează în `gestures.json`.
+
+### "La ce mă uit?" (model de viziune)
+
+Acțiunea `identify_object` face o poză cu camera de scenă, desenează un cerc
+în punctul calibrat unde te uiți — cu raza dată de eroarea RMS a propriei tale
+calibrări, deci cercul e mai mare când calibrarea e mai slabă — și o trimite la
+Gemini, care răspunde cu JSON:
+
+```json
+{"objects": [{"name": "cană", "probability": 0.72},
+             {"name": "pahar", "probability": 0.21}],
+ "scene": "birou cu laptop și cană"}
+```
+
+Implicit folosește `gemini-2.5-flash-lite` (cel mai ieftin model cu vedere).
+Apelul rulează pe un thread separat, deci o rețea lentă nu blochează niciodată
+bucla de tracking.
+
+Cheia API **nu** se pune în config (pagina de setări o poate citi înapoi).
+Pune-o într-una din astea:
+
+```bash
+export GEMINI_API_KEY="cheia-ta"          # sau, permanent pentru serviciu:
+echo "cheia-ta" > ~/MovirisGlazeTracker/gemini_key.txt
+```
+
+Pentru serviciul systemd, adaugă în `/etc/systemd/system/glaze.service`:
+
+```
+Environment=GEMINI_API_KEY=cheia-ta
+```
+
+`gemini_key.txt` e în `.gitignore`, deci nu ajunge din greșeală pe GitHub.
 
 ### Pagina de setări {#pagina-de-setari}
 

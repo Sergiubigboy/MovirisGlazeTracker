@@ -13,6 +13,7 @@ independently of tracking, so an unattended Pi spends its CPU on the eye.
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import subprocess
@@ -22,10 +23,12 @@ import time
 import cv2
 
 from . import cameras
+from . import vision
+from . import webserver
 from .calibration import Calibration, Smoother
 from .config import Config
+from .gestures import GestureEngine
 from .tracker_core import EyeTracker
-from . import webserver
 
 
 class JpegChannel:
@@ -79,6 +82,9 @@ class GlazeApp:
         self.calibration = Calibration(cfg.calibration_path)
         self.calibration.load()
         self.smoother = Smoother()
+        self.gestures = GestureEngine(cfg.gestures_path,
+                                      enter=cfg.gaze_zone_enter,
+                                      exit_=cfg.gaze_zone_exit)
 
         self.channels = {"eye": JpegChannel("eye"), "scene": JpegChannel("scene")}
         self.stopping = False
@@ -96,6 +102,8 @@ class GlazeApp:
         self._udp_target = None
         self.notice = ""
         self._last_triple_blink_at = None
+        self._last_vision = None      # most recent vision-model answer
+        self._vision_busy = False     # one outstanding request at a time
 
         self._setup_udp()
 
@@ -207,6 +215,9 @@ class GlazeApp:
             if result.triple_blink:
                 self._last_triple_blink_at = time.time()
 
+            for gesture in self.gestures.update(result):
+                self._dispatch_gesture(gesture)
+
             if watching:
                 elapsed = time.perf_counter() - last_encode
                 if elapsed >= 1.0 / max(1.0, cfg.stream_fps):
@@ -306,6 +317,86 @@ class GlazeApp:
             except OSError:
                 pass
 
+    # -- gesture actions -------------------------------------------------
+    def _dispatch_gesture(self, gesture):
+        """Run the action bound to a gesture that just fired."""
+        action = gesture.get("action") or "nothing"
+
+        if action == "nothing":
+            return
+        if action == "reset_model":
+            self.tracker.reset()
+            self.smoother.reset()
+            return
+        if action == "toggle_sphere":
+            self.tracker.toggle_sphere_adjustment()
+            return
+        if action == "save_calibration":
+            self.calibration.save()
+            return
+        if action in ("identify_object", "webhook"):
+            # Network calls must never run on the tracking thread - a slow
+            # API would stall the eye camera loop.
+            threading.Thread(target=self._run_network_action,
+                             args=(action, gesture), daemon=True).start()
+            return
+
+        self.notice = "unknown gesture action: %s" % action
+
+    def _run_network_action(self, action, gesture):
+        if action == "webhook":
+            url = gesture.get("action_arg")
+            if not url:
+                self.notice = "webhook gesture has no URL configured"
+                return
+            try:
+                import urllib.request
+                payload = json.dumps({"gesture": gesture.get("name"),
+                                      "state": self.state()}).encode("utf-8")
+                request = urllib.request.Request(
+                    url, data=payload,
+                    headers={"Content-Type": "application/json"}, method="POST")
+                urllib.request.urlopen(request, timeout=10).close()
+            except Exception as exc:
+                self.notice = "webhook failed: %s" % exc
+            return
+
+        self.identify_object()
+
+    def identify_object(self):
+        """Snapshot the scene, mark the gaze point, ask the vision model."""
+        if self._vision_busy:
+            return {"ok": False, "error": "a vision request is already running"}
+        if not self.cfg.vision_enabled:
+            return {"ok": False, "error": "vision is disabled in the config"}
+        if self.scene_camera is None:
+            return {"ok": False, "error": "no scene camera"}
+
+        frame = self.scene_camera.latest()
+        if frame is None:
+            return {"ok": False, "error": "no scene frame yet"}
+
+        with self._state_lock:
+            point = self._scene_point
+        if point is None:
+            return {"ok": False, "error": "not calibrated - no gaze point to mark"}
+
+        self._vision_busy = True
+        try:
+            frame = cameras.orient(frame, self.cfg.flip_scene_vertical,
+                                   self.cfg.flip_scene_horizontal)
+            radius = vision.uncertainty_from_calibration(self.calibration)
+            marked = vision.annotate_gaze(frame, point, radius)
+            answer = vision.ask_gemini(marked, model=self.cfg.vision_model)
+            answer["at"] = time.time()
+            answer["gaze_point"] = [round(point[0], 3), round(point[1], 3)]
+            answer["uncertainty"] = round(radius, 3)
+            with self._state_lock:
+                self._last_vision = answer
+            return answer
+        finally:
+            self._vision_busy = False
+
     def gaze_vector_line(self):
         with self._state_lock:
             return self._last_gaze_line + "\n" if self._last_gaze_line else "\n"
@@ -358,6 +449,16 @@ class GlazeApp:
             "blink_max_ms": cfg.blink_max_ms,
             "blink_window_ms": cfg.blink_window_ms,
             "blink_warmup_s": cfg.blink_warmup_s,
+            "pupil_min_confidence": cfg.pupil_min_confidence,
+            "pupil_min_circularity": cfg.pupil_min_circularity,
+            "pupil_max_area_fraction": cfg.pupil_max_area_fraction,
+            "pupil_max_jump_fraction": cfg.pupil_max_jump_fraction,
+            "lash_open_iterations": cfg.lash_open_iterations,
+            "gaze_zone_enter": cfg.gaze_zone_enter,
+            "gaze_zone_exit": cfg.gaze_zone_exit,
+            "vision_model": cfg.vision_model,
+            "vision_enabled": cfg.vision_enabled,
+            "vision_key_present": vision.load_api_key() is not None,
         }
 
     def state(self):
@@ -392,6 +493,20 @@ class GlazeApp:
             round(time.time() - self._last_triple_blink_at, 1)
             if self._last_triple_blink_at is not None else None
         )
+
+        gesture_state = self.gestures.state()
+        payload["gestures"] = {
+            "zone": gesture_state["zone"],
+            "recent_tokens": gesture_state["recent_tokens"],
+            "history": gesture_state["history"],
+        }
+
+        with self._state_lock:
+            last_vision = self._last_vision
+        payload["vision"] = dict(last_vision) if last_vision else None
+        if payload["vision"] is not None:
+            payload["vision"]["seconds_ago"] = round(time.time() - last_vision["at"], 1)
+        payload["vision_busy"] = self._vision_busy
         return payload
 
     def command(self, action, payload):
@@ -446,6 +561,21 @@ class GlazeApp:
             loaded = self.calibration.load()
             self.smoother.reset()
             return {"ok": loaded, "calibration": self.calibration.to_dict()}
+
+        if action == "gestures_get":
+            return {"ok": True, "gestures": self.gestures.load()}
+
+        if action == "gestures_set":
+            try:
+                saved = self.gestures.replace_all(payload.get("gestures") or [])
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc)}
+            return {"ok": True, "gestures": saved}
+
+        if action == "identify_object":
+            # Run it inline here: this is a user pressing a button and
+            # waiting for the answer, not the tracking loop.
+            return self.identify_object()
 
         if action in ("poweroff", "reboot", "restart_service"):
             return self._power_action(action)
@@ -502,6 +632,13 @@ class GlazeApp:
             "blink_max_ms": (float, 50.0, 2000.0),
             "blink_window_ms": (float, 300.0, 5000.0),
             "blink_warmup_s": (float, 0.0, 60.0),
+            "pupil_min_confidence": (float, 0.0, 1.0),
+            "pupil_min_circularity": (float, 0.0, 1.0),
+            "pupil_max_area_fraction": (float, 0.02, 1.0),
+            "pupil_max_jump_fraction": (float, 0.05, 2.0),
+            "lash_open_iterations": (int, 0, 4),
+            "gaze_zone_enter": (float, 0.05, 2.0),
+            "gaze_zone_exit": (float, 0.0, 1.0),
         }
         for key, (cast, low, high) in numbers.items():
             if key in values:
@@ -523,5 +660,15 @@ class GlazeApp:
         if "smoothing" in values:
             self.smoother.alpha = max(0.05, min(1.0, float(values["smoothing"])))
             applied["smoothing"] = self.smoother.alpha
+
+        # These are cached in derived form, so pushing the cfg value alone
+        # would silently do nothing until the next restart.
+        if "pupil_max_area_fraction" in applied:
+            self.tracker.max_contour_area = (cfg.pupil_max_area_fraction
+                                             * cfg.proc_width * cfg.proc_height)
+        if "gaze_zone_enter" in applied:
+            self.gestures.enter_threshold = cfg.gaze_zone_enter
+        if "gaze_zone_exit" in applied:
+            self.gestures.exit_threshold = cfg.gaze_zone_exit
 
         return {"ok": True, "applied": applied}
