@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from glaze.speech import detect_usb_audio_device, list_playback_devices  # noqa: E402
+from glaze.speech import detect_output_device, list_playback_devices  # noqa: E402
 
 
 def main():
@@ -27,13 +27,13 @@ def main():
     for device in devices:
         print("  card %s: %s" % (device["card"], device["name"]))
 
-    picked = detect_usb_audio_device()
+    picked = detect_output_device()
     print()
     if picked:
         print("glaze would auto-select: %s" % picked)
     else:
-        print("glaze found no USB audio device - set tts_audio_device manually "
-             "in /settings once you plug the speaker in")
+        print("glaze found no usable output device - set tts_audio_device manually "
+             "in /settings (HDMI is never auto-picked)")
 
 
 if __name__ == "__main__":

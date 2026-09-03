@@ -33,14 +33,29 @@ def list_playback_devices():
     return devices
 
 
-def detect_usb_audio_device():
-    """First card that looks USB - the common case of one speaker plugged in.
+def detect_output_device():
+    """Best-guess playback device, in priority order.
+
+    1. A USB sound card (the speaker itself carries the audio over USB).
+    2. The Pi's own onboard headphone jack - just as common a setup: a
+       USB-*powered* speaker with a plain analogue jack input has no USB
+       audio interface at all, the signal comes from the Pi's own jack.
+    3. Nothing else: HDMI is skipped, since on a headless Pi it is almost
+       never actually connected to anything that plays sound.
 
     Returns an ALSA device string like ``plughw:CARD=1,DEV=0``, or ``None``.
     """
-    for device in list_playback_devices():
+    devices = list_playback_devices()
+
+    for device in devices:
         if "usb" in device["name"].lower():
             return "plughw:CARD=%s,DEV=0" % device["card"]
+
+    for device in devices:
+        name = device["name"].lower()
+        if "headphone" in name or "bcm2835" in name or "jack" in name:
+            return "plughw:CARD=%s,DEV=0" % device["card"]
+
     return None
 
 
@@ -56,7 +71,7 @@ def speak(text, device=None, voice="ro", rate=165, blocking=False):
     if not text:
         return False
 
-    target = device or detect_usb_audio_device()
+    target = device or detect_output_device()
     if not target:
         return False
 

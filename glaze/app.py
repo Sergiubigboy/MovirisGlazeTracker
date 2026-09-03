@@ -473,7 +473,7 @@ class GlazeApp:
             "tts_voice": cfg.tts_voice,
             "tts_rate": cfg.tts_rate,
             "tts_audio_device": cfg.tts_audio_device,
-            "tts_device_detected": speech.detect_usb_audio_device(),
+            "tts_device_detected": speech.detect_output_device(),
         }
 
     def state(self):
