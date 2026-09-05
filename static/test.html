@@ -75,6 +75,24 @@
 </head>
 <body>
 
+<!-- Registered in its own block, before the main script parses: a syntax
+     error there stops that script dead, and without this the page just sits
+     blank with no clue why. This turns it into a visible message. -->
+<script>
+window.addEventListener("error", function (e) {
+  var bar = document.getElementById("jsError");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "jsError";
+    bar.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:999;" +
+      "background:#2a1618;color:#f85149;padding:10px 16px;font:13px ui-monospace,monospace";
+    document.body.appendChild(bar);
+  }
+  bar.textContent = "eroare JavaScript: " + (e.message || e.error) +
+                    "  (" + (e.filename || "").split("/").pop() + ":" + e.lineno + ")";
+});
+</script>
+
 <header>
   <h1>Glaze / teste</h1>
   <span id="msg"></span>

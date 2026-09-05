@@ -107,6 +107,24 @@
 </head>
 <body>
 
+<!-- Registered in its own block, before the main script parses: a syntax
+     error there stops that script dead, and without this the page just sits
+     blank with no clue why. This turns it into a visible message. -->
+<script>
+window.addEventListener("error", function (e) {
+  var bar = document.getElementById("jsError");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "jsError";
+    bar.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:999;" +
+      "background:#2a1618;color:#f85149;padding:10px 16px;font:13px ui-monospace,monospace";
+    document.body.appendChild(bar);
+  }
+  bar.textContent = "eroare JavaScript: " + (e.message || e.error) +
+                    "  (" + (e.filename || "").split("/").pop() + ":" + e.lineno + ")";
+});
+</script>
+
 <header>
   <h1>Glaze</h1>
   <span class="sub"><span class="dot" id="dotEye"></span> eye <span id="fpsEye">-</span></span>
@@ -394,7 +412,7 @@ function renderConversation(c, s) {
     } else {
       banner.className = "on";
       stage.textContent = "gata de pornire";
-      big.textContent = "apasă „începe selecția"";
+      big.textContent = "apasă „începe selecția”";
       hint.textContent = c.last_sentence
         ? "ultima propoziție: " + c.last_sentence
         : "apoi uită-te pe rând la lucrurile despre care vrei să vorbești";
@@ -408,8 +426,8 @@ function renderConversation(c, s) {
     banner.className = "on capturing";
     stage.textContent = "pasul 1 · alege  (" + (c.captures || 0) + " selectate)";
     big.textContent = "uită-te fix la ce vrei";
-    hint.textContent = "uită-te la un lucru și apasă „fă poză" — auzi un bip. " +
-                       "Când ai terminat, apasă „gata de ales" (sau ține ochii închiși ~1s). " +
+    hint.textContent = "uită-te la un lucru și apasă „fă poză” — auzi un bip. " +
+                       "Când ai terminat, apasă „gata de ales” (sau ține ochii închiși ~1s). " +
                        "Privire lungă mult stânga = nevoi, mult dreapta = dureri.";
   } else if (state === "ANALYZING") {
     banner.className = "on thinking";
