@@ -265,7 +265,9 @@ var logEl = document.getElementById("log");
 // Cache-bust so a reconnect does not reuse a dead multipart response.
 // An MJPEG <img> never "finishes" loading, so attach the streams only after
 // the document itself has loaded - otherwise the tab spins forever.
+var streamsStarted = false;
 function startStreams() {
+  streamsStarted = true;
   setTimeout(function () {
     eyeImg.src = "/eye.mjpg?t=" + Date.now();
     if (sceneEnabled) sceneImg.src = "/scene.mjpg?t=" + Date.now();
@@ -346,6 +348,7 @@ function setValue(key, value) {
 // ---- live state ----------------------------------------------------------
 function render(s) {
   state = s;
+  checkStreams(s);
   document.getElementById("vOk").textContent = s.ok ? "yes" : "no";
   document.getElementById("vConf").textContent = (s.confidence * 100).toFixed(0) + "%";
   document.getElementById("vFps").textContent = s.fps.toFixed(1);
@@ -559,6 +562,26 @@ function toggleCursor() {
   cursorOn = !cursorOn;
   document.getElementById("gazeCursor").classList.toggle("on", cursorOn);
   document.getElementById("btnCursor").className = cursorOn ? "on" : "";
+}
+
+// The browser allows only ~6 connections per origin and each open page holds
+// three (two MJPEG streams plus SSE), so a second page can leave a stream
+// queued forever with no error - the pane just stays blank. The server tells
+// us how many viewers each stream actually has, so a mismatch is detectable
+// and recoverable.
+var lastReconnect = 0;
+function checkStreams(s) {
+  if (!streamsStarted || !s.viewers) return;
+  var now = Date.now();
+  if (now - lastReconnect < 4000) return;
+  var eyeDead = s.viewers.eye === 0;
+  var sceneDead = sceneEnabled && s.viewers.scene === 0;
+  if (!eyeDead && !sceneDead) return;
+
+  lastReconnect = now;
+  log("reconectez stream-ul video...");
+  if (eyeDead) eyeImg.src = "/eye.mjpg?t=" + now;
+  if (sceneDead) sceneImg.src = "/scene.mjpg?t=" + now;
 }
 
 function maybeStartStreams() {

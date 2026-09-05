@@ -256,6 +256,7 @@ window.addEventListener("error", function (e) {
     <div class="row">
       <button onclick="cmd('set_gaze_center')">setează centrul (uită-te drept)</button>
       <button onclick="cmd('reset')">reset model</button>
+      <button id="btnPreview" onclick="togglePreviews()">arată imaginile</button>
     </div>
     <img class="shot" id="eyeShot" alt="ochi">
   </section>
@@ -389,25 +390,37 @@ function loadConfig() {
   });
 }
 
-function connectEvents() {
-  var source = new EventSource("/events");
-  source.onmessage = function(e){
-    try { render(JSON.parse(e.data)); } catch (err) { /* partial */ }
-  };
-  source.onerror = function(){ source.close(); setTimeout(connectEvents, 1500); };
+// Polling, not SSE: this page is secondary and a permanent connection here
+// costs the dashboard one of the browser's ~6 per-origin slots, which is
+// enough to leave its video stream queued forever.
+function pollState() {
+  fetch("/api/state")
+    .then(function(r){ return r.json(); })
+    .then(render)
+    .catch(function(){})
+    .finally(function(){ setTimeout(pollState, 200); });
 }
 
-// The two previews are plain MJPEG; start them after load so the page itself
-// finishes loading first (an MJPEG <img> never "completes").
-window.addEventListener("load", function(){
-  setTimeout(function(){
-    document.getElementById("eyeShot").src = "/eye.mjpg?t=" + Date.now();
-    document.getElementById("sceneShot").src = "/scene.mjpg?t=" + Date.now();
-  }, 0);
-});
+// Previews are opt-in: each MJPEG stream is a permanent connection, and
+// holding two here can starve the dashboard's own streams.
+var previewsOn = false;
+function togglePreviews() {
+  previewsOn = !previewsOn;
+  var eye = document.getElementById("eyeShot");
+  var scene = document.getElementById("sceneShot");
+  document.getElementById("btnPreview").textContent =
+    previewsOn ? "ascunde imaginile" : "arată imaginile";
+  if (previewsOn) {
+    eye.src = "/eye.mjpg?t=" + Date.now();
+    scene.src = "/scene.mjpg?t=" + Date.now();
+  } else {
+    eye.removeAttribute("src");
+    scene.removeAttribute("src");
+  }
+}
 
 loadConfig();
-connectEvents();
+pollState();
 </script>
 </body>
 </html>
