@@ -9,3 +9,4 @@ gestures.json
 runtime.json
 
 .venv/
+tts_cache/

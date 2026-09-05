@@ -193,6 +193,17 @@ class Config:
     # new users), and the API says which one to move to in the 404 body. This
     # is editable from the settings page so a rename needs no code change.
     vision_model: str = "gemini-3.5-flash-lite"
+
+    # Voice. espeak-ng is instant and needs no network, but it sounds robotic
+    # and, with no Romanian voice installed on Windows, reads Romanian with an
+    # English accent. Microsoft's free neural voices are a different league and
+    # need no key; the cost is a short network round trip, which the cache
+    # below removes for anything said more than once. "auto" uses the neural
+    # voice when it is reachable and falls back to the local one when it is
+    # not, so the device is never left mute.
+    tts_engine: str = "auto"                     # auto | edge | system
+    tts_edge_voice: str = "ro-RO-AlinaNeural"    # free, Romanian, female
+    tts_cache_entries: int = 300
     vision_enabled: bool = True
     # Object names come back in this language, and it also picks the espeak
     # voice - the two must agree, or you get English text read with a
@@ -412,6 +423,7 @@ PERSISTABLE = {
     # Which physical camera plays which role. Picked in the dashboard, because
     # nothing in a USB node says whether it is pointed at an eye or a room.
     "eye_source", "scene_source",
+    "tts_engine", "tts_edge_voice",
     "camera_swapped", "flip_eye_vertical", "flip_eye_horizontal",
     "flip_scene_vertical", "flip_scene_horizontal", "rotate_eye_degrees",
     "draw_overlay", "roi_mode", "write_gaze_file", "jpeg_quality",

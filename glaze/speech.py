@@ -19,10 +19,12 @@ For nicer voices later, this is the one place to swap in Piper TTS - the
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import math
 import os
 import re
+import shutil
 import struct
 import subprocess
 import threading
@@ -30,6 +32,10 @@ import wave
 
 IS_WINDOWS = os.name == "nt"
 WINDOWS_DEVICE = "windows-default"
+
+CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         "tts_cache")
+_cache_lock = threading.Lock()
 
 
 def list_playback_devices():
@@ -155,7 +161,23 @@ def cue(name, device=None, blocking=True, volume=0.35):
     return True
 
 
-def speak(text, device=None, voice="ro", rate=165, blocking=False):
+def options(cfg):
+    """Voice settings from a config, as keyword arguments for ``speak``.
+
+    Duck-typed on purpose: this module stays free of the config import, and
+    the four call sites stay one line each.
+    """
+    return {
+        "voice": cfg.tts_voice,
+        "rate": cfg.tts_rate,
+        "engine": getattr(cfg, "tts_engine", "auto"),
+        "edge_voice": getattr(cfg, "tts_edge_voice", "ro-RO-AlinaNeural"),
+        "cache_entries": getattr(cfg, "tts_cache_entries", 300),
+    }
+
+
+def speak(text, device=None, voice="ro", rate=165, blocking=False,
+          engine="auto", edge_voice="ro-RO-AlinaNeural", cache_entries=300):
     """Speak ``text`` through ``device`` (auto-detected USB speaker if None).
 
     Fire-and-forget by default: runs in a background thread so a slow or
@@ -172,6 +194,15 @@ def speak(text, device=None, voice="ro", rate=165, blocking=False):
         return False
 
     def run():
+        # Try the good voice first. Anything at all going wrong with it -
+        # no network, no package, a service hiccup - has to end in the local
+        # voice speaking rather than in silence, because silence is
+        # indistinguishable from the device being broken.
+        if engine in ("auto", "edge"):
+            if _speak_edge(text, edge_voice, rate, target, cache_entries):
+                return
+            if engine == "edge":
+                return
         if IS_WINDOWS:
             _speak_windows(text, voice, rate)
             return
@@ -231,3 +262,150 @@ def _speak_windows(text, voice="ro", rate=165):
 def _ps_quote(text):
     """A PowerShell single-quoted literal: only the quote itself needs care."""
     return "'" + text.replace("'", "''") + "'"
+
+
+# ---- neural voice -------------------------------------------------------
+
+def _speak_edge(text, voice, rate, device, cache_entries=300):
+    """Speak with a Microsoft neural voice. True if it actually played.
+
+    Free and keyless, but it is a network call, so every phrase is kept on
+    disk: the questions this asks are a short fixed set, and after the first
+    time each one plays instantly and keeps working with no network at all.
+    """
+    if not voice:
+        return False
+
+    path = _cached_audio(text, voice, rate, cache_entries)
+    if path is None:
+        return False
+    return _play_audio_file(path, device)
+
+
+def _cached_audio(text, voice, rate, cache_entries=300):
+    key = hashlib.sha256(("%s|%s|%s" % (voice, rate, text)).encode("utf-8")).hexdigest()[:32]
+    path = os.path.join(CACHE_DIR, key + ".mp3")
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        return path
+
+    # espeak counts words per minute around 165; edge wants a percentage.
+    percent = max(-50, min(100, int(round((rate - 165) / 1.65))))
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        partial = path + ".part"
+        result = subprocess.run(
+            [_python(), "-m", "edge_tts", "--voice", voice,
+             "--rate=%+d%%" % percent, "--text", text, "--write-media", partial],
+            capture_output=True, timeout=20)
+        if result.returncode != 0 or not os.path.exists(partial)                 or os.path.getsize(partial) == 0:
+            _discard(partial)
+            return None
+        os.replace(partial, path)
+    except (OSError, subprocess.SubprocessError):
+        _discard(path + ".part")
+        return None
+
+    _trim_cache(cache_entries)
+    return path
+
+
+def _python():
+    """The interpreter running us, so edge_tts is found in the same venv."""
+    import sys
+    return sys.executable or "python"
+
+
+def _discard(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def _trim_cache(keep):
+    """Drop the least recently used files. The phrase set is small and fixed,
+    so this should never actually bite - it is here so a long-running device
+    cannot slowly fill its card."""
+    with _cache_lock:
+        try:
+            files = [os.path.join(CACHE_DIR, name) for name in os.listdir(CACHE_DIR)
+                     if name.endswith(".mp3")]
+        except OSError:
+            return
+        if len(files) <= max(1, keep):
+            return
+        files.sort(key=lambda f: os.path.getmtime(f))
+        for path in files[:len(files) - keep]:
+            _discard(path)
+
+
+def _play_audio_file(path, device=None):
+    """Play an mp3. Returns True only if a player actually ran."""
+    if IS_WINDOWS:
+        return _play_windows(path)
+
+    # mpg123 takes an explicit ALSA device, which is the whole reason this
+    # module names devices instead of trusting the system default.
+    if shutil.which("mpg123"):
+        command = ["mpg123", "-q"]
+        if device and device != WINDOWS_DEVICE:
+            command += ["-a", device]
+        command.append(path)
+    elif shutil.which("ffplay"):
+        command = ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", path]
+    else:
+        return False
+
+    try:
+        return subprocess.run(command, capture_output=True, timeout=60).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _play_windows(path):
+    script = (
+        "Add-Type -AssemblyName presentationCore;"
+        "$p = New-Object System.Windows.Media.MediaPlayer;"
+        "$p.Open([uri]%s);"
+        # Open() is asynchronous; the duration is unknown until it has read
+        # the header, so wait for that rather than guessing at a sleep.
+        "$n = 0; while (-not $p.NaturalDuration.HasTimeSpan -and $n -lt 50) "
+        "{ Start-Sleep -Milliseconds 100; $n++ };"
+        "$p.Play();"
+        "if ($p.NaturalDuration.HasTimeSpan) "
+        "{ Start-Sleep -Milliseconds ([int]$p.NaturalDuration.TimeSpan.TotalMilliseconds + 350) } "
+        "else { Start-Sleep -Seconds 3 };"
+        "$p.Close();"
+    ) % _ps_quote(os.path.abspath(path))
+
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    try:
+        result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive",
+                                 "-EncodedCommand", encoded],
+                                timeout=90, capture_output=True)
+        return result.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def prewarm(phrases, engine="auto", edge_voice="ro-RO-AlinaNeural",
+            rate=165, cache_entries=300):
+    """Fetch the audio for a list of phrases in the background, once.
+
+    Nothing is played and every failure is ignored: this is an optimisation,
+    and the fallbacks in speak() already cover the case where it does not
+    happen at all.
+    """
+    if engine not in ("auto", "edge") or not edge_voice:
+        return None
+
+    def run():
+        for phrase in phrases:
+            try:
+                _cached_audio(phrase, edge_voice, rate, cache_entries)
+            except Exception:
+                return          # offline, or no package: stop trying
+
+    thread = threading.Thread(target=run, name="tts-prewarm", daemon=True)
+    thread.start()
+    return thread

@@ -608,13 +608,13 @@ class ConversationEngine:
         """Into the earpiece - short prompts only the wearer needs to hear."""
         cfg = self.cfg
         device = cfg.tts_question_device or cfg.tts_audio_device or None
-        speech.speak(text, device=device, voice=cfg.tts_voice, rate=cfg.tts_rate)
+        speech.speak(text, device=device, **speech.options(cfg))
 
     def speak_aloud(self, text):
         """Out the loudspeaker - this is what the room hears."""
         cfg = self.cfg
         speech.speak(text, device=cfg.tts_audio_device or None,
-                     voice=cfg.tts_voice, rate=cfg.tts_rate)
+                     **speech.options(cfg))
 
     # -- for the UI --------------------------------------------------------
     def state_dict(self):

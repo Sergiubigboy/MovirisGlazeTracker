@@ -168,7 +168,9 @@
       nu găsește boxa corectă.
     </p>
     <div class="field"><label>rostește obiectul identificat</label><input type="checkbox" data-key="tts_enabled"></div>
-    <div class="field"><label>voce (cod limbă espeak-ng)</label><input type="text" style="width:90px" data-key="tts_voice"></div>
+    <div class="field"><label>motor voce<small>auto = voce bună, cu revenire la cea locală dacă pică netul</small></label><select data-key="tts_engine"><option value="auto">auto</option><option value="edge">doar voce bună</option><option value="system">doar locală</option></select></div>
+    <div class="field"><label>voce bună<small>ro-RO-AlinaNeural = femeie, română</small></label><input type="text" style="width:190px" data-key="tts_edge_voice"></div>
+    <div class="field"><label>voce locală (cod espeak-ng)</label><input type="text" style="width:90px" data-key="tts_voice"></div>
     <div class="field"><label>viteză vorbire<small>cuvinte/min</small></label><input type="number" min="80" max="400" data-key="tts_rate"></div>
     <div class="field"><label>dispozitiv audio<small>gol = auto-detect</small></label></div>
     <input type="text" data-key="tts_audio_device" placeholder="plughw:CARD=1,DEV=0"

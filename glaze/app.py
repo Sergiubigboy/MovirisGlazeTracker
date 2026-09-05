@@ -25,6 +25,7 @@ import time
 import cv2
 
 from . import cameras
+from . import phrases
 from . import speech
 from . import vision
 from . import webserver
@@ -214,6 +215,14 @@ class GlazeApp:
         # Always spawn it: the scene camera can appear later, after a swap or
         # a re-detect, and the loop handles "not there yet" on its own.
         self._spawn(self._scene_loop, "scene")
+
+        # Warm the voice cache for the fixed phrases. The needs and pain
+        # menus have to work when the network is down, and that is exactly
+        # when nobody can wait for a download.
+        if cfg.conversation_enabled:
+            speech.prewarm(phrases.fixed_phrases(), engine=cfg.tts_engine,
+                           edge_voice=cfg.tts_edge_voice, rate=cfg.tts_rate,
+                           cache_entries=cfg.tts_cache_entries)
 
         self._server = webserver.serve(self, cfg.host, cfg.port)
         return self
@@ -612,7 +621,7 @@ class GlazeApp:
             if self.cfg.tts_enabled and answer.get("ok") and answer.get("objects"):
                 top = max(answer["objects"], key=lambda o: o.get("probability", 0))
                 speech.speak(top["name"], device=self.cfg.tts_audio_device or None,
-                            voice=self.cfg.tts_voice, rate=self.cfg.tts_rate)
+                             **speech.options(self.cfg))
 
             return answer
         finally:
@@ -698,6 +707,8 @@ class GlazeApp:
             "vision_key_present": vision.load_api_key() is not None,
             "tts_enabled": cfg.tts_enabled,
             "tts_voice": cfg.tts_voice,
+            "tts_engine": cfg.tts_engine,
+            "tts_edge_voice": cfg.tts_edge_voice,
             "tts_rate": cfg.tts_rate,
             "tts_audio_device": cfg.tts_audio_device,
             "tts_device_detected": speech.detect_output_device(),
@@ -940,7 +951,7 @@ class GlazeApp:
         if action == "tts_test":
             text = str(payload.get("text") or "Salut, te aud bine?")
             started = speech.speak(text, device=cfg.tts_audio_device or None,
-                                   voice=cfg.tts_voice, rate=cfg.tts_rate)
+                                   **speech.options(cfg))
             if not started:
                 return {"ok": False, "error":
                         "no USB audio device found (or espeak-ng missing) - "
@@ -1066,6 +1077,7 @@ class GlazeApp:
                 applied[key] = choice
 
         for key, max_len in (("vision_language", 40), ("tts_voice", 10),
+                             ("tts_engine", 10), ("tts_edge_voice", 40),
                              ("tts_audio_device", 60), ("tts_question_device", 60)):
             if key in values:
                 text = str(values[key]).strip()

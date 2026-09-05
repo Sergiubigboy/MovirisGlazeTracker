@@ -19,8 +19,17 @@ sudo apt-get install -y \
     python3-picamera2 \
     v4l-utils \
     espeak-ng \
+    mpg123 \
     alsa-utils \
     network-manager
+
+echo "==> Installing the Romanian neural voice (free, no key)"
+# espeak-ng stays installed as the offline fallback: it is instant and needs
+# no network, which is what matters when the WiFi drops mid-sentence.
+# --break-system-packages is required for a system-wide pip install on Pi OS
+# Bookworm; edge-tts is pure Python and pulls only aiohttp.
+sudo pip3 install --break-system-packages --quiet edge-tts \
+    || echo "  edge-tts unavailable - the offline espeak voice will be used"
 
 echo "==> Checking imports"
 python3 - <<'PY'

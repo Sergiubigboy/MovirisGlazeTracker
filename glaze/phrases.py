@@ -75,3 +75,22 @@ def fallback_sentence(pillars):
         return "Am nevoie de ajutor."
 
     return " ".join(parts).strip() + "."
+
+
+def fixed_phrases():
+    """Everything the device can say without asking the model anything.
+
+    Used to warm the voice cache at startup so the first time one of these is
+    needed - which is exactly when something is wrong - it plays instantly and
+    works with the network down.
+    """
+    said = ["da", "nu", "nevoi", "dureri", "gata", "am ascultat"]
+    for menu in MENUS.values():
+        for word, sentence in menu:
+            said.append(word)
+            said.append(sentence)
+    seen = []
+    for phrase in said:
+        if phrase not in seen:
+            seen.append(phrase)
+    return seen

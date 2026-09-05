@@ -229,7 +229,12 @@ class Handler(BaseHTTPRequestHandler):
 
 class _Server(ThreadingHTTPServer):
     daemon_threads = True
-    allow_reuse_address = True
+    # Unix needs this to rebind a port still in TIME_WAIT after a restart.
+    # Windows reads the same flag as "let anyone share this port", so a second
+    # copy of the app bound 8000 silently and the two then fought over the
+    # cameras - which looked like the cameras themselves being flaky. Refusing
+    # to start is the honest outcome there.
+    allow_reuse_address = os.name != "nt"
     # A browser opens 3-4 long-lived connections; a couple of extra viewers
     # would otherwise starve the Pi.
     request_queue_size = 16
@@ -238,7 +243,13 @@ class _Server(ThreadingHTTPServer):
 def serve(hub, host="0.0.0.0", port=8000):
     """Start the HTTP server in a background thread and return it."""
     handler = type("BoundHandler", (Handler,), {"hub": hub})
-    server = _Server((host, port), handler)
+    try:
+        server = _Server((host, port), handler)
+    except OSError as exc:
+        raise OSError(
+            "portul %d este deja folosit - probabil Glaze ruleaza deja. "
+            "Inchide-l, sau porneste cu --port <alt numar>. (%s)" % (port, exc)
+        ) from exc
     thread = threading.Thread(target=server.serve_forever, name="http", daemon=True)
     thread.start()
     return server
