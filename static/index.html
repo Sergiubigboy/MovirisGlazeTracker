@@ -116,6 +116,8 @@
   <span class="sub" style="margin-left:auto">
     <a href="/gestures" style="color:var(--accent);text-decoration:none">gesturi</a>
     &nbsp;·&nbsp;
+    <a href="/test" style="color:var(--accent);text-decoration:none">teste</a>
+    &nbsp;·&nbsp;
     <a href="/log" style="color:var(--accent);text-decoration:none">log</a>
     &nbsp;·&nbsp;
     <a href="/settings" style="color:var(--accent);text-decoration:none">settings &amp; power</a>
@@ -127,9 +129,12 @@
           style="font-size:16px; padding:12px 22px; border-color:var(--accent); color:var(--accent)">
     ▶ începe selecția
   </button>
+  <button onclick="send('capture_photo')" style="padding:12px 18px">📷 fă poză</button>
+  <button onclick="send('finish_choosing')" style="padding:12px 18px">✓ gata de ales</button>
   <button onclick="send('conversation_cancel')" style="padding:12px 18px">oprește</button>
   <span style="color:var(--muted); font-size:12px">
-    apoi uită-te fix ~1s la fiecare lucru · ține ochii închiși ~1s când ai terminat
+    uită-te la ceva → „fă poză" · repetă → „gata de ales"
+    &nbsp;·&nbsp; <a href="/test" style="color:var(--accent)">pagina de teste</a>
   </span>
 </div>
 
@@ -403,9 +408,9 @@ function renderConversation(c, s) {
     banner.className = "on capturing";
     stage.textContent = "pasul 1 · alege  (" + (c.captures || 0) + " selectate)";
     big.textContent = "uită-te fix la ce vrei";
-    hint.textContent = "ține privirea nemișcată ~1 secundă pe fiecare lucru — auzi un bip când l-a prins. " +
-                       "Când ai terminat, ȚINE OCHII ÎNCHIȘI ~1 secundă. " +
-                       "Privire lungă mult în stânga = nevoi, mult în dreapta = dureri.";
+    hint.textContent = "uită-te la un lucru și apasă „fă poză" — auzi un bip. " +
+                       "Când ai terminat, apasă „gata de ales" (sau ține ochii închiși ~1s). " +
+                       "Privire lungă mult stânga = nevoi, mult dreapta = dureri.";
   } else if (state === "ANALYZING") {
     banner.className = "on thinking";
     stage.textContent = "pasul 2 · mă gândesc";

@@ -69,6 +69,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._serve_static_page("settings.html")
         if path in ("/gestures", "/gestures.html"):
             return self._serve_static_page("gestures.html")
+        if path in ("/test", "/test.html"):
+            return self._serve_static_page("test.html")
         if path in ("/log", "/log.html"):
             return self._serve_static_page("log.html")
         if path == "/eye.mjpg":

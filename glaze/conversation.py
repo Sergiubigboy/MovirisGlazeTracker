@@ -72,6 +72,8 @@ class ConversationEngine:
         self._long_close_blocked_until = 0.0
         # Set when an extreme look during selection asks for a needs/pain menu.
         self._menu_request = None
+        # Answer pushed in from a button instead of read off the gaze.
+        self._injected_answer = None
         # Set when the wearer signals "done choosing" by holding their eyes
         # shut; the capture loop waits on it instead of only a timeout.
         self._finish_capturing = threading.Event()
@@ -104,7 +106,7 @@ class ConversationEngine:
             self._check_long_close(result, now)
 
         if state == "CAPTURING":
-            if scene_point is not None:
+            if scene_point is not None and cfg.capture_mode == "dwell":
                 self._check_capture_dwell(scene_point, now)
             # Only while choosing: looking to an extreme then means "what I
             # want is not an object in front of me, it is a need or a pain".
@@ -235,13 +237,14 @@ class ConversationEngine:
         self._dwell_anchor = None
         self._last_capture_point = point
 
-    def _capture_photo(self, point):
+    def _capture_photo(self, point, uncertainty=None):
         frame = self.app.scene_frame()
         if frame is None:
             self.log.add("capture", "no scene frame available")
             return
 
-        radius = vision.uncertainty_from_calibration(self.app.calibration)
+        radius = (uncertainty if uncertainty is not None
+                  else vision.uncertainty_from_calibration(self.app.calibration))
         marked = vision.annotate_gaze(frame, point, radius)
         with self._lock:
             self._captures.append(marked)
@@ -250,6 +253,50 @@ class ConversationEngine:
                      {"point": [round(point[0], 3), round(point[1], 3)],
                       "uncertainty": round(radius, 3)})
         self.cue("capture")
+
+    def capture_now(self):
+        """Take one photo right now, at whatever the wearer is looking at."""
+        with self._lock:
+            state = self.state
+            count = len(self._captures)
+        if state != "CAPTURING":
+            return {"ok": False, "error": "nu suntem în modul de selecție"}
+        if count >= self.cfg.max_captures:
+            return {"ok": False, "error": "ai atins numărul maxim de poze (%d)"
+                    % self.cfg.max_captures}
+
+        with self._lock:
+            point = self._scene_point
+
+        # Without a calibration there is no gaze point, but refusing to take
+        # the photo at all makes the whole chain untestable until calibration
+        # is done. Take it with a wide centre circle instead, which honestly
+        # says "somewhere in here" rather than pointing confidently at nothing.
+        calibrated = point is not None
+        if not calibrated:
+            point = (0.5, 0.5)
+
+        self._capture_photo(point, uncertainty=None if calibrated else 0.45)
+        with self._lock:
+            return {"ok": True, "photos": len(self._captures)}
+
+    def finish_choosing(self):
+        with self._lock:
+            state = self.state
+            count = len(self._captures)
+        if state != "CAPTURING":
+            return {"ok": False, "error": "nu suntem în modul de selecție"}
+        self._finish_capturing.set()
+        return {"ok": True, "photos": count}
+
+    def answer(self, value):
+        """Answer the current question from a button."""
+        with self._lock:
+            if self.state != "ASKING":
+                return {"ok": False, "error": "nu e nicio întrebare activă"}
+            question = self.current_question
+        self._injected_answer = bool(value)
+        return {"ok": True, "answered": bool(value), "question": question}
 
     # -- session control ---------------------------------------------------
     def start(self, trigger="triple_blink", confirm=None):
@@ -486,10 +533,23 @@ class ConversationEngine:
         # started - an answer has to be a fresh, deliberate move.
         with self._lock:
             stale_since = self._zone_since
+        self._injected_answer = None
 
         while time.time() < deadline:
             if not self._still_running():
                 return False
+
+            # A button press answers immediately, whatever the eyes are doing.
+            if cfg.answer_mode in ("buttons", "both") and self._injected_answer is not None:
+                answer, self._injected_answer = self._injected_answer, None
+                self.log.add("answer", "%s to %r (button)"
+                             % ("YES" if answer else "NO", word))
+                self.cue("yes" if answer else "no")
+                return answer
+
+            if cfg.answer_mode == "buttons":
+                time.sleep(0.02)
+                continue
 
             now = time.time()
             with self._lock:

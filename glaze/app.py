@@ -453,7 +453,13 @@ class GlazeApp:
             self.tracker.toggle_sphere_adjustment()
             return
         if action == "start_conversation":
-            self.conversation.start("triple_blink")
+            # Same gate as the engine's own closure check - otherwise a saved
+            # gesture keeps starting sessions after start_gesture was set to
+            # "none", which is exactly what happened in testing.
+            if cfg.start_gesture == "none":
+                self.log.add("state", "gesture start ignored (start_gesture=none)")
+                return
+            self.conversation.start("gesture")
             return
         if action == "save_calibration":
             self.calibration.save()
@@ -624,6 +630,8 @@ class GlazeApp:
             "long_close_cooldown_s": cfg.long_close_cooldown_s,
             "confirm_start": cfg.confirm_start,
             "start_gesture": cfg.start_gesture,
+            "capture_mode": cfg.capture_mode,
+            "answer_mode": cfg.answer_mode,
             "gaze_offset_x": cfg.gaze_offset_x,
             "gaze_offset_y": cfg.gaze_offset_y,
             "gaze_log_interval_s": cfg.gaze_log_interval_s,
@@ -778,6 +786,15 @@ class GlazeApp:
             return self.conversation.start(payload.get("trigger") or "button",
                                            confirm=payload.get("confirm", False))
 
+        if action == "capture_photo":
+            return self.conversation.capture_now()
+
+        if action == "finish_choosing":
+            return self.conversation.finish_choosing()
+
+        if action == "answer":
+            return self.conversation.answer(payload.get("value", True))
+
         if action == "conversation_cancel":
             return self.conversation.cancel()
 
@@ -908,6 +925,17 @@ class GlazeApp:
                 return {"ok": False, "error": "invalid model name"}
             cfg.vision_model = name
             applied["vision_model"] = name
+
+        for key, choices in (("capture_mode", ("manual", "dwell")),
+                             ("answer_mode", ("gaze", "buttons", "both")),
+                             ("start_gesture", ("none", "long_close", "triple_blink"))):
+            if key in values:
+                choice = str(values[key])
+                if choice not in choices:
+                    return {"ok": False, "error": "%s must be one of %s"
+                            % (key, ", ".join(choices))}
+                setattr(cfg, key, choice)
+                applied[key] = choice
 
         for key, max_len in (("vision_language", 40), ("tts_voice", 10),
                              ("tts_audio_device", 60), ("tts_question_device", 60)):

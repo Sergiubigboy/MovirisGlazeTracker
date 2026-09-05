@@ -210,12 +210,25 @@ class Config:
     # Give up collecting and analyse what we have after this long.
     capture_window_s: float = 25.0
 
+    # How photos are taken during selection.
+    #   "manual" - only when the button is pressed (predictable, testable)
+    #   "dwell"  - automatically after holding the gaze still
+    capture_mode: str = "manual"
+    # How questions get answered.
+    #   "gaze"    - look up = yes, look down = no
+    #   "buttons" - the DA / NU buttons in the web UI
+    #   "both"    - either
+    answer_mode: str = "both"
+
     # Answering: look up = yes, look down = no, held for answer_dwell_ms.
     answer_dwell_ms: float = 500.0
     # No answer within this long counts as "no", move to the next option.
     answer_timeout_ms: float = 4000.0
     # Vertical gaze offset (in eye-radius units) that counts as up/down.
-    answer_zone_threshold: float = 0.30
+    # Deliberately far out: small involuntary movements must never register as
+    # an answer. Tune it live on the /test page, which shows the live value
+    # against the threshold.
+    answer_zone_threshold: float = 0.45
     # A pillar at or above this confidence is accepted without asking.
     pillar_confidence_threshold: float = 0.90
     max_options_per_pillar: int = 4
@@ -414,7 +427,8 @@ PERSISTABLE = {
     "menu_cooldown_s", "menu_require_model", "model_ready_rays",
     "sound_cues", "gaze_log_interval_s", "show_guide",
     "long_close_ms", "long_close_max_ms", "long_close_cooldown_s",
-    "confirm_start", "start_gesture", "gaze_offset_x", "gaze_offset_y",
+    "confirm_start", "start_gesture", "capture_mode", "answer_mode",
+    "gaze_offset_x", "gaze_offset_y",
 }
 
 

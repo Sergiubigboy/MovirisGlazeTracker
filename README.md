@@ -507,22 +507,27 @@ Se bazează pe ideea că aproape orice mesaj se reduce la patru piloni —
 ### Fluxul
 
 ```
-APEȘI „ÎNCEPE SELECȚIA" în dashboard     ← implicit, doar butonul pornește
+APEȘI „ÎNCEPE SELECȚIA"                ← nimic nu pornește singur
    ↓
-ALEGI       te uiți fix ~1s la fiecare lucru → bip = l-a prins
-            (max 3, în orice ordine)
-            · privire lungă mult în STÂNGA  = vreau o nevoie
-            · privire lungă mult în DREAPTA = vreau să spun că mă doare
+te uiți la ceva → apeși „FĂ POZĂ"      → bip, poza cu cercul tău
+repeți (max 3)
+   · privire lungă mult STÂNGA  = vreau o nevoie
+   · privire lungă mult DREAPTA = vreau să spun că mă doare
    ↓
-ȚII OCHII ÎNCHIȘI ~1 SECUNDĂ           ← „am terminat de ales"
+apeși „GATA DE ALES"                   (sau ții ochii închiși ~1s)
    ↓
 ANALYZING   UN SINGUR apel AI cu toate pozele → cei 4 piloni + încredere
    ↓
 ASKING      fiecare pilon sub prag → opțiunile lui, pe rând, în cască
-            privire SUS ținută 500ms = DA · JOS = NU · fără răspuns = NU
+            SUS = da · JOS = nu · sau butoanele DA/NU din interfață
    ↓
 SPEAKING    propoziția finală, pe difuzorul mare
 ```
+
+**Totul e manual implicit.** Fără dwell, fără gesturi de pornire, fără
+automatisme. `capture_mode = "manual"` și `start_gesture = "none"`. Dacă vrei
+capturi automate după fixarea privirii, treci pe `dwell` din `/settings` sau
+din pagina de teste.
 
 **Meniurile de nevoi/dureri există doar în timpul selecției.** Adică: după ce
 ai pornit, dacă te uiți la extremă în loc să alegi un obiect, înseamnă „ce
@@ -651,6 +656,24 @@ lung într-o parte, și **deschidea meniul de dureri la nesfârșit**.
 Acum meniurile sunt blocate până când `sphere radius` nu mai e 0 și s-au
 strâns destule raze (implicit 25). Banner-ul îți spune explicit când e cazul:
 *„modelul ochiului nu e gata — uită-te în jur câteva secunde"*.
+
+### Pagina de teste (`/test`)
+
+Fiecare mecanism poate fi testat izolat, cu valorile lui reglabile pe loc și
+cu ce se întâmplă vizibil în timp real:
+
+| Test | Ce vezi | Ce reglezi |
+|---|---|---|
+| **DA / NU** | un indicator vertical cu benzile DA/NU colorate și punctul privirii tale în timp real | pragul (cât de sus/jos trebuie să te uiți) și cât trebuie ținut |
+| **Clipit** | bară cu durata închiderii curente, plus verdictul „ar fi contat drept comandă?" după fiecare închidere | minim/maxim pentru comandă, durata unui clipit normal |
+| **Selecție** | starea, câte poze ai, punctul de privire, previzualizarea scenei | modul poză: manual sau automat |
+| **Răspunsuri** | întrebarea activă, butoane DA/NU | modul de răspuns: ochi, butoane, sau ambele |
+| **Sunete** | un buton per ton | — |
+| **Detecție** | încredere, fps, rază sferă, raze, model gata, motivul respingerii | setează centrul, reset model |
+
+E locul unde afli **de ce** ceva nu merge: dacă „model gata" e „nu", nimic
+altceva nu are cum să funcționeze; dacă DA/NU se declanșează din mișcări mici,
+vezi exact cu cât trebuie crescut pragul.
 
 ### Log-ul (`/log`)
 

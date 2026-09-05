@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glaze - teste</title>
+<style>
+  :root {
+    --bg:#0d1117; --panel:#161b22; --line:#262d36; --text:#e6edf3;
+    --muted:#8b949e; --accent:#4ade80; --warn:#f0b429; --bad:#f85149;
+    --blue:#58a6ff;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  header { display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+           padding:14px 20px; border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:16px; letter-spacing:.08em; text-transform:uppercase; }
+  header a { color:var(--accent); text-decoration:none; }
+  header .spacer { margin-left:auto; }
+
+  main { display:grid; grid-template-columns:repeat(auto-fit,minmax(400px,1fr));
+         gap:16px; padding:16px 20px; max-width:1500px; }
+
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .card h2 { margin:0 0 4px; font-size:13px; letter-spacing:.1em;
+             text-transform:uppercase; color:var(--accent); }
+  .card p.why { margin:0 0 14px; color:var(--muted); font-size:12px; }
+
+  button { font:inherit; color:var(--text); background:#21262d;
+           border:1px solid var(--line); border-radius:6px; padding:8px 14px; cursor:pointer; }
+  button:hover { border-color:#3d444d; }
+  button.big { font-size:16px; padding:14px 24px; }
+  button.yes { border-color:var(--accent); color:var(--accent); }
+  button.no  { border-color:var(--bad); color:var(--bad); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+
+  .slider { margin:12px 0 4px; }
+  .slider label { display:flex; justify-content:space-between; color:var(--muted); font-size:12px; }
+  .slider label b { color:var(--text); font-weight:normal; }
+  input[type=range] { width:100%; margin-top:4px; }
+
+  /* Live vertical gauge for the yes/no test */
+  .gauge { position:relative; height:190px; border:1px solid var(--line);
+           border-radius:8px; background:#0b0f14; overflow:hidden; margin-top:8px; }
+  .gauge .band { position:absolute; left:0; right:0; }
+  .gauge .yes { top:0; background:rgba(74,222,128,.13); border-bottom:1px dashed var(--accent); }
+  .gauge .no  { bottom:0; background:rgba(248,81,73,.13); border-top:1px dashed var(--bad); }
+  .gauge .tag { position:absolute; left:8px; font-size:11px; letter-spacing:.1em; }
+  .gauge .tag.y { color:var(--accent); top:6px; }
+  .gauge .tag.n { color:var(--bad); bottom:6px; }
+  .gauge .mid { position:absolute; left:0; right:0; top:50%; border-top:1px solid #2b3340; }
+  .gauge .dot { position:absolute; left:50%; width:16px; height:16px; margin:-8px 0 0 -8px;
+                border-radius:50%; background:var(--blue); transition:top .06s linear; }
+
+  .verdict { margin-top:10px; font-size:26px; font-weight:600; min-height:36px; }
+  .verdict.yes { color:var(--accent); }
+  .verdict.no  { color:var(--bad); }
+  .verdict.idle { color:var(--muted); font-size:15px; font-weight:400; }
+
+  .stat { display:flex; justify-content:space-between; padding:3px 0; color:var(--muted); }
+  .stat b { color:var(--text); font-weight:normal; }
+
+  .bar { height:22px; background:#0b0f14; border:1px solid var(--line);
+         border-radius:5px; overflow:hidden; margin-top:6px; }
+  .bar span { display:block; height:100%; background:var(--blue); width:0; transition:width .08s linear; }
+
+  .pill { display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px;
+          border:1px solid var(--line); color:var(--muted); }
+  .pill.on { border-color:var(--accent); color:var(--accent); }
+
+  img.shot { width:100%; border-radius:6px; display:block; margin-top:10px; background:#000; }
+  #msg { color:var(--muted); font-size:12px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Glaze / teste</h1>
+  <span id="msg"></span>
+  <span class="spacer"></span>
+  <a href="/">dashboard</a> &nbsp;<a href="/settings">settings</a> &nbsp;<a href="/log">log</a>
+</header>
+
+<main>
+
+  <!-- ============ YES / NO ============ -->
+  <section class="card">
+    <h2>1 · Test DA / NU</h2>
+    <p class="why">
+      Uită-te în sus sau în jos și vezi exact când se înregistrează. Punctul
+      albastru e privirea ta acum; benzile colorate sunt zonele care contează.
+      Dacă se activează din mișcări mici, <b>crește pragul</b>.
+    </p>
+
+    <div class="gauge" id="gauge">
+      <div class="band yes" id="bandYes"></div>
+      <div class="band no" id="bandNo"></div>
+      <div class="mid"></div>
+      <span class="tag y">DA</span>
+      <span class="tag n">NU</span>
+      <div class="dot" id="dot"></div>
+    </div>
+
+    <div class="verdict idle" id="verdict">centru — niciun răspuns</div>
+
+    <div class="stat"><span>valoare verticală acum</span><b id="vY">-</b></div>
+    <div class="stat"><span>ținut de</span><b id="vHeld">0 ms</b></div>
+
+    <div class="slider">
+      <label>prag DA/NU <b id="lblThr">-</b></label>
+      <input type="range" id="thr" min="0.1" max="1.2" step="0.05"
+             onchange="setVal('answer_zone_threshold', parseFloat(this.value))"
+             oninput="document.getElementById('lblThr').textContent=this.value; drawBands(this.value)">
+    </div>
+    <div class="slider">
+      <label>cât trebuie ținut (ms) <b id="lblDwell">-</b></label>
+      <input type="range" id="dwell" min="100" max="2000" step="50"
+             onchange="setVal('answer_dwell_ms', parseFloat(this.value))"
+             oninput="document.getElementById('lblDwell').textContent=this.value">
+    </div>
+  </section>
+
+  <!-- ============ BLINK ============ -->
+  <section class="card">
+    <h2>2 · Test clipit</h2>
+    <p class="why">
+      Clipește normal, apoi ține ochii închiși mai mult. Bara arată de cât timp
+      e ochiul închis; zona verde e intervalul care contează drept comandă.
+      Sub el = clipit obișnuit, peste el = pierdere de tracking, ignorat.
+    </p>
+
+    <div class="stat"><span>ochi închis acum</span><b id="bClosed">nu</b></div>
+    <div class="bar"><span id="bBar"></span></div>
+    <div class="stat" style="margin-top:6px"><span>durata închiderii</span><b id="bMs">0 ms</b></div>
+    <div class="stat"><span>ultima închidere terminată</span><b id="bLast">-</b></div>
+    <div class="stat"><span>clipiri numărate (total)</span><b id="bTotal">0</b></div>
+    <div class="stat"><span>ar fi contat drept comandă?</span><b id="bVerdict">-</b></div>
+
+    <div class="slider">
+      <label>minim pentru comandă (ms) <b id="lblMin">-</b></label>
+      <input type="range" id="lcMin" min="200" max="2000" step="50"
+             onchange="setVal('long_close_ms', parseFloat(this.value))"
+             oninput="document.getElementById('lblMin').textContent=this.value">
+    </div>
+    <div class="slider">
+      <label>maxim pentru comandă (ms) <b id="lblMax">-</b></label>
+      <input type="range" id="lcMax" min="800" max="6000" step="100"
+             onchange="setVal('long_close_max_ms', parseFloat(this.value))"
+             oninput="document.getElementById('lblMax').textContent=this.value">
+    </div>
+    <div class="slider">
+      <label>durată clipit normal, maxim (ms) <b id="lblBlinkMax">-</b></label>
+      <input type="range" id="blinkMax" min="100" max="1000" step="25"
+             onchange="setVal('blink_max_ms', parseFloat(this.value))"
+             oninput="document.getElementById('lblBlinkMax').textContent=this.value">
+    </div>
+  </section>
+
+  <!-- ============ SELECTION ============ -->
+  <section class="card">
+    <h2>3 · Test selecție (manual)</h2>
+    <p class="why">
+      Fără dwell, fără automatisme: apeși, face poza cu cercul acolo unde te
+      uiți acum. Când ai terminat, apeși „gata" și începe partea binară.
+    </p>
+
+    <div class="stat"><span>stare</span><b id="cState">-</b></div>
+    <div class="stat"><span>poze strânse</span><b id="cShots">0</b></div>
+    <div class="stat"><span>punct de privire acum</span><b id="cPoint">-</b></div>
+
+    <div class="row">
+      <button class="big" onclick="cmd('conversation_start')">1 · începe</button>
+      <button class="big" onclick="cmd('capture_photo')">2 · fă poză</button>
+      <button class="big" onclick="cmd('finish_choosing')">3 · gata</button>
+      <button onclick="cmd('conversation_cancel')">anulează</button>
+    </div>
+
+    <div class="row">
+      <span class="pill" id="pillManual">mod poză: -</span>
+      <button onclick="setVal('capture_mode','manual')">manual</button>
+      <button onclick="setVal('capture_mode','dwell')">automat (dwell)</button>
+    </div>
+
+    <img class="shot" id="sceneShot" alt="scenă">
+  </section>
+
+  <!-- ============ ANSWER BUTTONS ============ -->
+  <section class="card">
+    <h2>4 · Răspunde la întrebări</h2>
+    <p class="why">
+      Când e o întrebare activă, poți răspunde cu ochii sau direct de aici.
+      Util ca să testezi restul lanțului fără să depinzi de detecția privirii.
+    </p>
+
+    <div class="stat"><span>întrebare acum</span><b id="qNow">-</b></div>
+    <div class="row">
+      <button class="big yes" onclick="cmd('answer', {value:true})">DA</button>
+      <button class="big no" onclick="cmd('answer', {value:false})">NU</button>
+    </div>
+
+    <div class="row">
+      <span class="pill" id="pillAnswer">mod răspuns: -</span>
+      <button onclick="setVal('answer_mode','gaze')">doar ochi</button>
+      <button onclick="setVal('answer_mode','buttons')">doar butoane</button>
+      <button onclick="setVal('answer_mode','both')">ambele</button>
+    </div>
+
+    <div class="stat" style="margin-top:10px"><span>ultima propoziție</span><b id="qLast">-</b></div>
+  </section>
+
+  <!-- ============ SOUNDS ============ -->
+  <section class="card">
+    <h2>5 · Test sunete</h2>
+    <p class="why">Fiecare pas are tonul lui. Apasă ca să-l auzi izolat.</p>
+    <div class="row" id="cueRow"></div>
+    <div class="row">
+      <button onclick="cmd('tts_test')">test voce</button>
+    </div>
+  </section>
+
+  <!-- ============ TRACKING ============ -->
+  <section class="card">
+    <h2>6 · Calitatea detecției</h2>
+    <p class="why">
+      Dacă astea sunt proaste, nimic altceva nu poate funcționa bine.
+      „model gata" trebuie să fie DA înainte de orice test serios.
+    </p>
+    <div class="stat"><span>pupilă detectată</span><b id="tOk">-</b></div>
+    <div class="stat"><span>încredere</span><b id="tConf">-</b></div>
+    <div class="bar"><span id="tConfBar"></span></div>
+    <div class="stat" style="margin-top:6px"><span>fps tracker</span><b id="tFps">-</b></div>
+    <div class="stat"><span>rază sferă ochi</span><b id="tRadius">-</b></div>
+    <div class="stat"><span>raze strânse</span><b id="tRays">-</b></div>
+    <div class="stat"><span>model gata</span><b id="tReady">-</b></div>
+    <div class="stat"><span>motiv respingere</span><b id="tReject">-</b></div>
+
+    <div class="row">
+      <button onclick="cmd('set_gaze_center')">setează centrul (uită-te drept)</button>
+      <button onclick="cmd('reset')">reset model</button>
+    </div>
+    <img class="shot" id="eyeShot" alt="ochi">
+  </section>
+
+</main>
+
+<script>
+"use strict";
+
+var CUES = ["start","capture","thinking","question","yes","no","done","error"];
+var lastClosed = 0;
+
+function msg(text) { document.getElementById("msg").textContent = text || ""; }
+
+function cmd(action, extra) {
+  return fetch("/api/command", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify(Object.assign({action:action}, extra||{}))
+  }).then(function(r){ return r.json(); }).then(function(d){
+    msg(d.ok === false ? (d.error || "eroare") : (d.message || "ok"));
+    return d;
+  }).catch(function(e){ msg(String(e)); });
+}
+
+function setVal(key, value) {
+  var v = {}; v[key] = value;
+  return cmd("set", {values:v}).then(function(){ loadConfig(); });
+}
+
+document.getElementById("cueRow").innerHTML = CUES.map(function(c){
+  return '<button onclick="cmd(\'cue_test\',{cue:\'' + c + '\'})">' + c + "</button>";
+}).join("");
+
+// ---- yes/no gauge --------------------------------------------------------
+var threshold = 0.45;
+
+function drawBands(t) {
+  threshold = parseFloat(t) || 0.45;
+  // The gauge spans +-1.5 in normalised units, centre in the middle.
+  var pct = Math.min(48, (threshold / 1.5) * 50);
+  document.getElementById("bandYes").style.height = (50 - pct) + "%";
+  document.getElementById("bandNo").style.height = (50 - pct) + "%";
+}
+
+function renderGauge(y, zone, heldMs) {
+  var pos = 50 + (y / 1.5) * 50;              // normalised -> percent
+  document.getElementById("dot").style.top = Math.max(2, Math.min(98, pos)) + "%";
+  document.getElementById("vY").textContent = (y === null ? "-" : y.toFixed(3));
+  document.getElementById("vHeld").textContent = Math.round(heldMs) + " ms";
+
+  var el = document.getElementById("verdict");
+  if (zone === "U") { el.className = "verdict yes"; el.textContent = "DA"; }
+  else if (zone === "D") { el.className = "verdict no"; el.textContent = "NU"; }
+  else { el.className = "verdict idle"; el.textContent = "centru — niciun răspuns"; }
+}
+
+// ---- live state ----------------------------------------------------------
+function render(s) {
+  var c = s.conversation || {};
+  var y = s.gaze_normalized ? s.gaze_normalized[1] : null;
+  renderGauge(y === null ? 0 : y, c.zone, 0);
+
+  // blink panel
+  var closed = s.eye_closed_ms || 0;
+  document.getElementById("bClosed").textContent = s.blinking ? "DA" : "nu";
+  document.getElementById("bMs").textContent = Math.round(closed) + " ms";
+  document.getElementById("bBar").style.width =
+    Math.min(100, (closed / 3000) * 100) + "%";
+  document.getElementById("bTotal").textContent = s.blink_total;
+  if (closed > 0) {
+    lastClosed = closed;
+  } else if (lastClosed > 0) {
+    document.getElementById("bLast").textContent = Math.round(lastClosed) + " ms";
+    var min = parseFloat(document.getElementById("lcMin").value);
+    var max = parseFloat(document.getElementById("lcMax").value);
+    var el = document.getElementById("bVerdict");
+    if (lastClosed < min) { el.textContent = "nu — prea scurt (clipit)"; el.style.color = "var(--muted)"; }
+    else if (lastClosed > max) { el.textContent = "nu — prea lung (ignorat)"; el.style.color = "var(--warn)"; }
+    else { el.textContent = "DA — ar fi contat"; el.style.color = "var(--accent)"; }
+    lastClosed = 0;
+  }
+
+  // selection panel
+  document.getElementById("cState").textContent = c.state || "-";
+  document.getElementById("cShots").textContent = c.captures || 0;
+  document.getElementById("cPoint").textContent = s.scene_point
+    ? s.scene_point.map(function(v){ return v.toFixed(2); }).join(", ") : "necalibrat";
+
+  // answers
+  document.getElementById("qNow").textContent = c.question || "-";
+  document.getElementById("qLast").textContent = c.last_sentence || "-";
+
+  // tracking quality
+  document.getElementById("tOk").textContent = s.ok ? "da" : "nu";
+  document.getElementById("tConf").textContent = (s.confidence*100).toFixed(0) + "%";
+  document.getElementById("tConfBar").style.width = (s.confidence*100) + "%";
+  document.getElementById("tFps").textContent = s.fps.toFixed(1);
+  document.getElementById("tRadius").textContent = s.sphere_radius.toFixed(1);
+  document.getElementById("tRays").textContent = s.rays;
+  var ready = document.getElementById("tReady");
+  ready.textContent = c.model_ready ? "DA" : "nu — uită-te în jur";
+  ready.style.color = c.model_ready ? "var(--accent)" : "var(--warn)";
+
+  var m = s.metrics || {};
+  document.getElementById("tReject").textContent = m.rejected
+    ? Object.keys(m.rejected).map(function(k){ return k+"="+m.rejected[k]; }).join(" ")
+    : "-";
+}
+
+function loadConfig() {
+  fetch("/api/config").then(function(r){ return r.json(); }).then(function(cfg){
+    document.getElementById("thr").value = cfg.answer_zone_threshold;
+    document.getElementById("lblThr").textContent = cfg.answer_zone_threshold;
+    drawBands(cfg.answer_zone_threshold);
+
+    document.getElementById("dwell").value = cfg.answer_dwell_ms;
+    document.getElementById("lblDwell").textContent = cfg.answer_dwell_ms;
+    document.getElementById("lcMin").value = cfg.long_close_ms;
+    document.getElementById("lblMin").textContent = cfg.long_close_ms;
+    document.getElementById("lcMax").value = cfg.long_close_max_ms;
+    document.getElementById("lblMax").textContent = cfg.long_close_max_ms;
+    document.getElementById("blinkMax").value = cfg.blink_max_ms;
+    document.getElementById("lblBlinkMax").textContent = cfg.blink_max_ms;
+
+    var pm = document.getElementById("pillManual");
+    pm.textContent = "mod poză: " + cfg.capture_mode;
+    pm.className = "pill" + (cfg.capture_mode === "manual" ? " on" : "");
+    var pa = document.getElementById("pillAnswer");
+    pa.textContent = "mod răspuns: " + cfg.answer_mode;
+    pa.className = "pill on";
+  });
+}
+
+function connectEvents() {
+  var source = new EventSource("/events");
+  source.onmessage = function(e){
+    try { render(JSON.parse(e.data)); } catch (err) { /* partial */ }
+  };
+  source.onerror = function(){ source.close(); setTimeout(connectEvents, 1500); };
+}
+
+// The two previews are plain MJPEG; start them after load so the page itself
+// finishes loading first (an MJPEG <img> never "completes").
+window.addEventListener("load", function(){
+  setTimeout(function(){
+    document.getElementById("eyeShot").src = "/eye.mjpg?t=" + Date.now();
+    document.getElementById("sceneShot").src = "/scene.mjpg?t=" + Date.now();
+  }, 0);
+});
+
+loadConfig();
+connectEvents();
+</script>
+</body>
+</html>
