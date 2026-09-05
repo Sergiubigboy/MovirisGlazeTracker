@@ -240,7 +240,11 @@ class ConversationEngine:
     def _capture_photo(self, point, uncertainty=None):
         frame = self.app.scene_frame()
         if frame is None:
+            # Pressing "fa poza" with no scene camera used to do nothing at
+            # all - no sound, no message, nothing on screen. Say so instead.
+            self.last_error = "nu am cameră de scenă, nu pot face poza"
             self.log.add("capture", "no scene frame available")
+            self.cue("error")
             return
 
         radius = (uncertainty if uncertainty is not None
@@ -276,9 +280,16 @@ class ConversationEngine:
         if not calibrated:
             point = (0.5, 0.5)
 
+        before = len(self._captures)
         self._capture_photo(point, uncertainty=None if calibrated else 0.45)
         with self._lock:
-            return {"ok": True, "photos": len(self._captures)}
+            taken = len(self._captures)
+        if taken == before:
+            # The button must not answer "ok" when no photo exists. Without a
+            # scene camera this is the normal case on a laptop with one webcam.
+            return {"ok": False, "photos": taken,
+                    "error": self.last_error or "nu am putut face poza"}
+        return {"ok": True, "photos": taken}
 
     def finish_choosing(self):
         with self._lock:

@@ -7,23 +7,35 @@ than one audio sink (its own onboard jack, HDMI, and now the USB speaker), and
 "say it on the USB speaker" only works if we name that device explicitly
 instead of hoping it became the default.
 
+On a Windows laptop none of that exists, so the same two calls fall through
+to the built-in Windows voice and sound player instead. That is purely so the
+whole flow can be tried out at a desk before it goes on the glasses; the Pi
+path is untouched and is still the one that matters.
+
 For nicer voices later, this is the one place to swap in Piper TTS - the
 ``speak()`` call site elsewhere in the codebase would not need to change.
 """
 
 from __future__ import annotations
 
+import base64
 import io
 import math
+import os
 import re
 import struct
 import subprocess
 import threading
 import wave
 
+IS_WINDOWS = os.name == "nt"
+WINDOWS_DEVICE = "windows-default"
+
 
 def list_playback_devices():
     """Parse ``aplay -l``. Returns [{"card": "1", "name": "..."}]."""
+    if IS_WINDOWS:
+        return [{"card": WINDOWS_DEVICE, "name": "Windows default output"}]
     try:
         result = subprocess.run(["aplay", "-l"], capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.TimeoutExpired):
@@ -48,7 +60,12 @@ def detect_output_device():
        never actually connected to anything that plays sound.
 
     Returns an ALSA device string like ``plughw:CARD=1,DEV=0``, or ``None``.
+    On Windows there is no card to pick: the system default is the only sink
+    worth using, so it short-circuits to a sentinel the players understand.
     """
+    if IS_WINDOWS:
+        return WINDOWS_DEVICE
+
     devices = list_playback_devices()
 
     for device in devices:
@@ -116,6 +133,13 @@ def cue(name, device=None, blocking=True, volume=0.35):
     payload = _tone_wav(steps, volume=volume)
 
     def run():
+        if IS_WINDOWS:
+            try:
+                import winsound
+                winsound.PlaySound(payload, winsound.SND_MEMORY)
+            except Exception:
+                pass
+            return
         try:
             player = subprocess.Popen(["aplay", "-q", "-D", target],
                                       stdin=subprocess.PIPE,
@@ -148,6 +172,9 @@ def speak(text, device=None, voice="ro", rate=165, blocking=False):
         return False
 
     def run():
+        if IS_WINDOWS:
+            _speak_windows(text, voice, rate)
+            return
         try:
             espeak = subprocess.Popen(
                 ["espeak-ng", "-v", voice, "-s", str(rate), "--stdout", text],
@@ -166,3 +193,41 @@ def speak(text, device=None, voice="ro", rate=165, blocking=False):
     else:
         threading.Thread(target=run, daemon=True).start()
     return True
+
+
+def _speak_windows(text, voice="ro", rate=165):
+    """Speak through the Windows built-in voice (SAPI).
+
+    The command is handed over base64-encoded UTF-16, which is what
+    PowerShell's -EncodedCommand expects, so Romanian diacritics survive the
+    trip and no quoting in the sentence can break the call.
+    """
+    # espeak counts words per minute around 165; SAPI wants -10..10.
+    sapi_rate = max(-10, min(10, int(round((rate - 165) / 25.0))))
+    wanted = (voice or "ro").split("-")[0].lower()
+    script = (
+        "Add-Type -AssemblyName System.Speech;"
+        "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer;"
+        "$s.Rate = %d;"
+        # Prefer a voice for the requested language; fall back to the default
+        # one, which on a Romanian-less Windows means an English accent rather
+        # than silence.
+        "$v = $s.GetInstalledVoices() | Where-Object {"
+        " $_.VoiceInfo.Culture.TwoLetterISOLanguageName -eq '%s' } |"
+        " Select-Object -First 1;"
+        "if ($v) { $s.SelectVoice($v.VoiceInfo.Name) };"
+        "$s.Speak(%s);"
+    ) % (sapi_rate, wanted, _ps_quote(text))
+
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    try:
+        subprocess.run(["powershell", "-NoProfile", "-NonInteractive",
+                        "-EncodedCommand", encoded],
+                       timeout=30, capture_output=True)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def _ps_quote(text):
+    """A PowerShell single-quoted literal: only the quote itself needs care."""
+    return "'" + text.replace("'", "''") + "'"

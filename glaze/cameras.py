@@ -183,12 +183,14 @@ class V4L2Source(FrameSource):
         self.actual = (0, 0, 0.0)
 
     def _open(self):
-        backend = cv2.CAP_V4L2 if hasattr(cv2, "CAP_V4L2") and os.name != "nt" else cv2.CAP_ANY
-        capture = cv2.VideoCapture(self.index, backend)
-        if not capture.isOpened():
+        capture = None
+        for backend in _capture_backends():
+            capture = cv2.VideoCapture(self.index, backend)
+            if capture.isOpened():
+                break
             capture.release()
-            capture = cv2.VideoCapture(self.index)
-        if not capture.isOpened():
+            capture = None
+        if capture is None:
             raise CameraError("could not open USB camera index %s" % self.index)
 
         # MJPG keeps the USB bus free on a Pi; plenty of GC0308 modules only
@@ -325,14 +327,33 @@ def create_source(spec, width, height, fps, fourcc="MJPG", name="camera"):
     return VideoFileSource(spec, name=name)
 
 
+def _capture_backends():
+    """Capture backends to try, best first, for whatever OS this is.
+
+    On the Pi that is V4L2. On a Windows laptop DirectShow opens in a fraction
+    of the time Media Foundation takes and does not spew grab-frame warnings,
+    so it goes first there, with the automatic pick behind it as a fallback.
+    """
+    if os.name == "nt":
+        return [getattr(cv2, "CAP_DSHOW", cv2.CAP_ANY), cv2.CAP_ANY]
+    if hasattr(cv2, "CAP_V4L2"):
+        return [cv2.CAP_V4L2, cv2.CAP_ANY]
+    return [cv2.CAP_ANY]
+
+
 def list_v4l2_devices(max_index=8):
     """Probe /dev/video* so the web UI can show what is plugged in."""
+    # Windows has no device nodes to look at, so every index has to be opened
+    # to find out - keep that sweep short or a re-detect takes half a minute.
+    if os.name == "nt":
+        max_index = min(max_index, 4)
+
     devices = []
     for index in range(max_index):
         path = "/dev/video%d" % index
         if os.name != "nt" and not os.path.exists(path):
             continue
-        capture = cv2.VideoCapture(index, cv2.CAP_V4L2 if os.name != "nt" else cv2.CAP_ANY)
+        capture = cv2.VideoCapture(index, _capture_backends()[0])
         if capture.isOpened():
             ok, frame = capture.read()
             devices.append({

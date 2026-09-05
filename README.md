@@ -58,6 +58,28 @@ python3 tools/list_cameras.py
 
 ---
 
+### Pe laptop (Windows), doar pentru teste
+
+Nu trebuie schimbat nimic în cod: aplicația își dă seama singură pe ce rulează
+și alege DirectShow în loc de V4L2 pentru camere, plus vocea din Windows în
+locul lui `espeak-ng`. Pe Pi nu se schimbă absolut nimic.
+
+```powershell
+git pull
+.un_laptop.ps1
+```
+
+Prima rulare își face singură mediul Python și instalează ce trebuie (durează
+un minut); următoarele pornesc direct. Apoi deschizi `http://localhost:8000/`.
+
+Cu o singură cameră web ai eye tracking, DA/NU, clipit și toată pagina de
+teste. Poza + analiza AI au nevoie de o a doua cameră (cea de scenă) - dacă
+apeși „fă poză" fără ea, îți spune asta pe ecran în loc să nu facă nimic.
+Cu două camere pornești cu `.un_laptop.ps1 -Scene`.
+
+Pentru partea de AI îți trebuie și cheia: pui `gemini_key.txt` lângă cod, sau
+setezi `GEMINI_API_KEY` în mediu.
+
 ## 3. Pornire
 
 ```bash
