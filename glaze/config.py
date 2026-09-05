@@ -63,6 +63,10 @@ class Config:
 
     # Cap the tracking loop so the Pi keeps some CPU for the web server.
     max_tracking_fps: float = 30.0
+    # Seconds the tracking loop may go without completing an iteration before
+    # the watchdog reopens the cameras. Generous: a slow frame is normal, a
+    # loop that has not moved in eight seconds is stuck.
+    watchdog_timeout: float = 8.0
 
     # ---- detector tunables (upstream names kept) ------------------------
     threshold_strict: int = 5
@@ -373,6 +377,7 @@ def config_from_args(argv=None) -> Config:
 
     simple = ("eye_source", "scene_source", "proc_width", "proc_height", "port",
               "host", "jpeg_quality", "stream_fps", "max_tracking_fps",
+    "watchdog_timeout",
               "rotate_eye_degrees", "udp_target")
     for key in simple:
         value = getattr(args, key, None)

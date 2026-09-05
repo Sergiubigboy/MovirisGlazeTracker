@@ -199,6 +199,7 @@ window.addEventListener("error", function (e) {
       <button onclick="swapCameras()">inversează ochi/scenă</button>
       <button onclick="send('redetect_cameras')">re-detectează camere</button>
       <button onclick="setCenter()">setează centrul privirii</button>
+      <button id="btnStreamMode" onclick="toggleStreamMode()">stream continuu</button>
     </div>
     <p id="camInfo" style="color:var(--muted);font-size:11px;margin:0 0 10px"></p>
 
@@ -262,16 +263,64 @@ var eyeImg = document.getElementById("eyeImg");
 var sceneImg = document.getElementById("sceneImg");
 var logEl = document.getElementById("log");
 
-// Cache-bust so a reconnect does not reuse a dead multipart response.
-// An MJPEG <img> never "finishes" loading, so attach the streams only after
-// the document itself has loaded - otherwise the tab spins forever.
+// Images are fetched one frame per request instead of as an endless MJPEG
+// stream. A browser allows only ~6 connections per host and an MJPEG <img>
+// holds one open for ever, so opening a second page used to queue this
+// request for ever: blank pane, no error, tracking still running. Short
+// requests cannot be starved that way. "stream continuu" switches back to
+// MJPEG for whoever wants the smoother picture on a quiet network.
 var streamsStarted = false;
+var streamMode = "poll";
+try {
+  if (localStorage.getItem("glazeStreamMode") === "mjpeg") streamMode = "mjpeg";
+} catch (err) { /* private mode */ }
+
+function makePoller(img, url, fps) {
+  var busy = false;
+  function schedule(delay) { setTimeout(tick, delay); }
+  function tick() {
+    if (streamMode !== "poll" || busy) return;
+    busy = true;
+    var probe = new Image();
+    probe.onload = function () {
+      busy = false;
+      img.src = probe.src;          // swap only once decoded: no flicker
+      schedule(Math.max(60, 1000 / fps));
+    };
+    probe.onerror = function () {   // 503 until the first frame exists
+      busy = false;
+      schedule(600);
+    };
+    probe.src = url + "?t=" + Date.now();
+  }
+  return { start: function () { tick(); } };
+}
+
+var eyePoller = makePoller(eyeImg, "/eye.jpg", 10);
+var scenePoller = makePoller(sceneImg, "/scene.jpg", 5);
+
 function startStreams() {
   streamsStarted = true;
-  setTimeout(function () {
+  if (streamMode === "mjpeg") {
     eyeImg.src = "/eye.mjpg?t=" + Date.now();
     if (sceneEnabled) sceneImg.src = "/scene.mjpg?t=" + Date.now();
-  }, 0);
+  } else {
+    eyePoller.start();
+    if (sceneEnabled) scenePoller.start();
+  }
+}
+
+function labelStreamMode() {
+  var button = document.getElementById("btnStreamMode");
+  if (button) {
+    button.textContent = streamMode === "mjpeg" ? "imagini pe rand" : "stream continuu";
+  }
+}
+
+function toggleStreamMode() {
+  streamMode = streamMode === "poll" ? "mjpeg" : "poll";
+  try { localStorage.setItem("glazeStreamMode", streamMode); } catch (err) {}
+  location.reload();
 }
 
 function log(message) {
@@ -452,15 +501,14 @@ function renderConversation(c, s) {
   if (c.error) hint.textContent = "eroare: " + c.error;
 }
 
+// Polled, not server-sent. SSE held a third permanent connection open per
+// page, which is what pushed the two video streams over the browser limit.
 function connectEvents() {
-  var source = new EventSource("/events");
-  source.onmessage = function (event) {
-    try { render(JSON.parse(event.data)); } catch (err) { /* ignore a partial frame */ }
-  };
-  source.onerror = function () {
-    source.close();
-    setTimeout(connectEvents, 1500);
-  };
+  fetch("/api/state")
+    .then(function (r) { return r.json(); })
+    .then(function (s) { try { render(s); } catch (err) {} })
+    .catch(function () {})
+    .then(function () { setTimeout(connectEvents, 150); });
 }
 
 // ---- settings from the server -------------------------------------------
@@ -564,14 +612,12 @@ function toggleCursor() {
   document.getElementById("btnCursor").className = cursorOn ? "on" : "";
 }
 
-// The browser allows only ~6 connections per origin and each open page holds
-// three (two MJPEG streams plus SSE), so a second page can leave a stream
-// queued forever with no error - the pane just stays blank. The server tells
-// us how many viewers each stream actually has, so a mismatch is detectable
-// and recoverable.
+// Only meaningful while somebody has asked for continuous streaming: the
+// server reports how many viewers each stream really has, so a request that
+// silently never arrived is detectable and recoverable.
 var lastReconnect = 0;
 function checkStreams(s) {
-  if (!streamsStarted || !s.viewers) return;
+  if (streamMode !== "mjpeg" || !streamsStarted || !s.viewers) return;
   var now = Date.now();
   if (now - lastReconnect < 4000) return;
   var eyeDead = s.viewers.eye === 0;
@@ -587,7 +633,11 @@ function checkStreams(s) {
 function maybeStartStreams() {
   if (pageLoaded && configLoaded) startStreams();
 }
-window.addEventListener("load", function () { pageLoaded = true; maybeStartStreams(); });
+window.addEventListener("load", function () {
+  pageLoaded = true;
+  labelStreamMode();
+  maybeStartStreams();
+});
 connectEvents();
 </script>
 </body>

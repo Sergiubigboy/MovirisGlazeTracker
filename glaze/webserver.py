@@ -7,6 +7,8 @@ browser's parallel connections (page + eye stream + scene stream + SSE) fine.
 Routes
 ------
 GET  /                 dashboard
+GET  /eye.jpg          newest eye frame, single request (no streaming)
+GET  /scene.jpg        newest scene frame, single request (no streaming)
 GET  /eye.mjpg         annotated eye camera stream
 GET  /scene.mjpg       scene camera stream with the gaze marker
 GET  /events           server-sent events, live gaze JSON
@@ -73,6 +75,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._serve_static_page("test.html")
         if path in ("/log", "/log.html"):
             return self._serve_static_page("log.html")
+        if path == "/eye.jpg":
+            return self._serve_snapshot("eye")
+        if path == "/scene.jpg":
+            return self._serve_snapshot("scene")
         if path == "/eye.mjpg":
             return self._serve_mjpeg("eye")
         if path == "/scene.mjpg":
@@ -83,6 +89,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(self.hub.state())
         if path == "/api/config":
             return self._send_json(self.hub.config_dict())
+        if path == "/api/threads":
+            # What every thread is doing right now. A wedged loop used to be
+            # invisible: no crash, no log line, just a frozen picture.
+            import sys as _sys, traceback as _tb
+            frames = _sys._current_frames()
+            dump = {}
+            for thread in threading.enumerate():
+                stack = frames.get(thread.ident)
+                dump[thread.name] = (_tb.format_stack(stack)[-4:] if stack
+                                     else ["<no stack>"])
+            return self._send_json({"alive": self.hub.heartbeats(), "threads": dump})
         if path == "/api/cameras":
             return self._send_json({"devices": self.hub.list_cameras()})
         if path == "/api/calibration":
@@ -143,6 +160,25 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _serve_snapshot(self, which):
+        """One frame, one request, connection released immediately.
+
+        A browser allows only ~6 connections per host, and MJPEG holds one
+        open forever. Opening a second page therefore used to queue the
+        dashboard's stream request for ever, leaving a blank pane with no
+        error anywhere. Short requests cannot be starved that way, so this is
+        what the pages use by default.
+        """
+        jpeg = self.hub.snapshot(which)
+        if jpeg is None:
+            return self._send_text("no frame yet", status=503)
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(jpeg)))
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.end_headers()
+        self.wfile.write(jpeg)
+
     def _serve_mjpeg(self, which):
         self.send_response(200)
         self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=" + BOUNDARY)
@@ -157,6 +193,13 @@ class Handler(BaseHTTPRequestHandler):
             while not self.hub.stopping:
                 jpeg, sequence = self.hub.get_jpeg(which, sequence, timeout=2.0)
                 if jpeg is None:
+                    # Write something anyway. A handler that only waits never
+                    # touches the socket, so it cannot notice the browser has
+                    # gone and the viewer count drifts upwards for ever.
+                    try:
+                        self.wfile.write(b"\r\n")
+                    except OSError:
+                        break
                     continue
                 header = ("--%s\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n"
                           % (BOUNDARY, len(jpeg))).encode("ascii")

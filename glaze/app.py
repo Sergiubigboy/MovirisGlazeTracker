@@ -17,7 +17,9 @@ import json
 import os
 import socket
 import subprocess
+import sys
 import threading
+import traceback
 import time
 
 import cv2
@@ -62,6 +64,10 @@ class JpegChannel:
                 return None, self._sequence
             return self._data, self._sequence
 
+    def latest(self):
+        with self._lock:
+            return self._data
+
     def add_viewer(self):
         with self._lock:
             self.viewers += 1
@@ -96,6 +102,7 @@ class GlazeApp:
         self.conversation = ConversationEngine(cfg, self, self.log)
         self._last_gaze_log = 0.0
         self._last_track_error_log = 0.0
+        self._heartbeat = {}
 
         self.channels = {"eye": JpegChannel("eye"), "scene": JpegChannel("scene")}
         self.stopping = False
@@ -197,6 +204,7 @@ class GlazeApp:
         cfg = self.cfg
         self._open_cameras()
 
+        self._spawn(self._watchdog, "watchdog")
         self._spawn(self._tracking_loop, "tracking")
         # Always spawn it: the scene camera can appear later, after a swap or
         # a re-detect, and the loop handles "not there yet" on its own.
@@ -223,9 +231,30 @@ class GlazeApp:
                 "detected": list(self.detected_cameras)}
 
     def _spawn(self, target, name):
-        thread = threading.Thread(target=target, name=name, daemon=True)
+        thread = threading.Thread(target=self._supervise, args=(target, name),
+                                  name=name, daemon=True)
         thread.start()
         self._threads.append(thread)
+
+    def _supervise(self, target, name):
+        """Keep a worker loop alive across bugs.
+
+        An unhandled exception used to end the thread outright: tracking
+        stopped, the eye pane went dead and nothing anywhere said why. The
+        device is somebody's only way of speaking, so a crash has to be a
+        logged hiccup, not the end of the session.
+        """
+        while not self.stopping:
+            try:
+                target()
+                return                       # returned on purpose: we are done
+            except Exception as exc:
+                detail = traceback.format_exc(limit=6)
+                self.notice = "%s thread crashed: %s" % (name, exc)
+                self.log.add("error", "%s thread crashed, restarting: %s" % (name, exc),
+                             {"traceback": detail})
+                sys.stderr.write(detail)
+                time.sleep(1.0)
 
     def stop(self):
         self.stopping = True
@@ -247,15 +276,28 @@ class GlazeApp:
         last_encode = 0.0
         next_due = time.perf_counter()
 
+        current = None
+
         while not self.stopping:
-            if self.eye_camera is None:
+            self._heartbeat["tracking"] = time.time()
+
+            camera = self.eye_camera
+            if camera is None:
+                current = None
                 self._publish_placeholder("eye", "no eye camera")
                 time.sleep(0.5)
                 continue
 
-            frame, sequence = self.eye_camera.wait_for_frame(sequence, timeout=1.0)
+            # A re-detect or a swap hands us a different object whose frame
+            # counter restarts at zero. Carrying the old count across meant
+            # asking the new camera for a frame it would never have.
+            if camera is not current:
+                current = camera
+                sequence = None
+
+            frame, sequence = camera.wait_for_frame(sequence, timeout=1.0)
             if frame is None:
-                self._publish_placeholder("eye", self.eye_camera.error or "waiting for eye camera")
+                self._publish_placeholder("eye", camera.error or "waiting for eye camera")
                 continue
 
             # Throttle so the web server and the scene camera get CPU too.
@@ -270,8 +312,12 @@ class GlazeApp:
             frame = cameras.orient(frame, cfg.flip_eye_vertical,
                                    cfg.flip_eye_horizontal, cfg.rotate_eye_degrees)
 
-            watching = self.channels["eye"].viewers > 0
-            draw = cfg.draw_overlay and watching
+            # No viewer gating any more. Counting viewers looked like a
+            # saving, but a miscounted viewer (a queued request, a stale
+            # connection, a snapshot poll) meant the pane stayed blank while
+            # tracking ran perfectly. Encoding one small JPEG per frame costs
+            # ~2 ms; a blank pane costs the user the whole device.
+            draw = cfg.draw_overlay
 
             try:
                 result, annotated = self.tracker.process_frame(frame, draw=draw)
@@ -287,9 +333,8 @@ class GlazeApp:
                     self._last_track_error_log = now
                     self.log.add("error", "process_frame failed: %s" % exc,
                                  {"frame_shape": list(getattr(frame, "shape", []))})
-                if watching:
-                    self.channels["eye"].publish(
-                        cameras.encode_jpeg(frame, cfg.jpeg_quality))
+                self.channels["eye"].publish(
+                    cameras.encode_jpeg(frame, cfg.jpeg_quality))
                 time.sleep(0.05)
                 continue
 
@@ -318,12 +363,36 @@ class GlazeApp:
                     continue
                 self._dispatch_gesture(gesture)
 
-            if watching:
-                elapsed = time.perf_counter() - last_encode
-                if elapsed >= 1.0 / max(1.0, cfg.stream_fps):
-                    jpeg = cameras.encode_jpeg(annotated, cfg.jpeg_quality)
-                    self.channels["eye"].publish(jpeg)
-                    last_encode = time.perf_counter()
+            elapsed = time.perf_counter() - last_encode
+            if elapsed >= 1.0 / max(1.0, cfg.stream_fps):
+                jpeg = cameras.encode_jpeg(annotated, cfg.jpeg_quality)
+                self.channels["eye"].publish(jpeg)
+                last_encode = time.perf_counter()
+
+    def _watchdog(self):
+        """Last line of defence: notice a wedged loop and reopen the cameras.
+
+        Everything else here tries to prevent a freeze. This one assumes one
+        will happen anyway - some driver, some day, will block in read() - and
+        makes it recoverable without the user having to ssh in and restart a
+        service they cannot reach.
+        """
+        while not self.stopping:
+            time.sleep(2.0)
+            beat = self._heartbeat.get("tracking")
+            if beat is None or self.stopping:
+                continue
+            stalled = time.time() - beat
+            if stalled < self.cfg.watchdog_timeout:
+                continue
+
+            self.log.add("error", "tracking stalled %.1fs, reopening cameras" % stalled)
+            self.notice = "camera blocată, o redeschid..."
+            self._heartbeat["tracking"] = time.time()   # one restart per stall
+            try:
+                self.restart_cameras()
+            except Exception as exc:
+                self.log.add("error", "watchdog restart failed: %s" % exc)
 
     def _scene_loop(self):
         cfg = self.cfg
@@ -334,6 +403,8 @@ class GlazeApp:
             # The camera can be absent at startup, or briefly during a swap /
             # re-detect, so re-read it every iteration instead of capturing it
             # once outside the loop.
+            self._heartbeat["scene"] = time.time()
+
             camera = self.scene_camera
             if camera is None:
                 self._publish_placeholder("scene", "no scene camera")
@@ -344,10 +415,6 @@ class GlazeApp:
             frame, sequence = camera.wait_for_frame(sequence, timeout=1.0)
             if frame is None:
                 self._publish_placeholder("scene", camera.error or "waiting for scene camera")
-                continue
-
-            if self.channels["scene"].viewers <= 0:
-                time.sleep(0.1)
                 continue
 
             elapsed = time.perf_counter() - last_encode
@@ -382,8 +449,6 @@ class GlazeApp:
 
     def _publish_placeholder(self, which, text):
         channel = self.channels[which]
-        if channel.viewers <= 0:
-            return
         frame = cameras.placeholder_frame(self.cfg.proc_width, self.cfg.proc_height, text)
         channel.publish(cameras.encode_jpeg(frame, 50))
         time.sleep(0.5)
@@ -470,7 +535,7 @@ class GlazeApp:
             # Same gate as the engine's own closure check - otherwise a saved
             # gesture keeps starting sessions after start_gesture was set to
             # "none", which is exactly what happened in testing.
-            if cfg.start_gesture == "none":
+            if self.cfg.start_gesture == "none":
                 self.log.add("state", "gesture start ignored (start_gesture=none)")
                 return
             self.conversation.start("gesture")
@@ -555,6 +620,17 @@ class GlazeApp:
     # -- web server API -------------------------------------------------
     def get_jpeg(self, which, last_sequence, timeout=2.0):
         return self.channels[which].get(last_sequence, timeout)
+
+    def heartbeats(self):
+        """Seconds since each worker loop last completed an iteration."""
+        now = time.time()
+        return {name: round(now - stamp, 2)
+                for name, stamp in dict(self._heartbeat).items()}
+
+    def snapshot(self, which):
+        """Newest JPEG for a one-shot request, no long-lived connection."""
+        channel = self.channels.get(which)
+        return channel.latest() if channel is not None else None
 
     def stream_opened(self, which):
         self.channels[which].add_viewer()

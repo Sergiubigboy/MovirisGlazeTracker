@@ -401,21 +401,35 @@ function pollState() {
     .finally(function(){ setTimeout(pollState, 200); });
 }
 
-// Previews are opt-in: each MJPEG stream is a permanent connection, and
-// holding two here can starve the dashboard's own streams.
+// Previews are opt-in and fetched one frame at a time. Nothing on this page
+// holds a permanent connection, so it can never starve the dashboard.
 var previewsOn = false;
+
+function shoot(id, url, fps) {
+  var img = document.getElementById(id);
+  var probe = new Image();
+  probe.onload = function () {
+    if (!previewsOn) return;
+    img.src = probe.src;
+    setTimeout(function () { shoot(id, url, fps); }, Math.max(100, 1000 / fps));
+  };
+  probe.onerror = function () {
+    if (!previewsOn) return;
+    setTimeout(function () { shoot(id, url, fps); }, 700);
+  };
+  probe.src = url + "?t=" + Date.now();
+}
+
 function togglePreviews() {
   previewsOn = !previewsOn;
-  var eye = document.getElementById("eyeShot");
-  var scene = document.getElementById("sceneShot");
   document.getElementById("btnPreview").textContent =
     previewsOn ? "ascunde imaginile" : "arată imaginile";
   if (previewsOn) {
-    eye.src = "/eye.mjpg?t=" + Date.now();
-    scene.src = "/scene.mjpg?t=" + Date.now();
+    shoot("eyeShot", "/eye.jpg", 8);
+    shoot("sceneShot", "/scene.jpg", 4);
   } else {
-    eye.removeAttribute("src");
-    scene.removeAttribute("src");
+    document.getElementById("eyeShot").removeAttribute("src");
+    document.getElementById("sceneShot").removeAttribute("src");
   }
 }
 

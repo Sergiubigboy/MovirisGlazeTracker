@@ -45,6 +45,7 @@ class FrameSource:
         self._sequence = 0
         self._new_frame = threading.Condition(self._lock)
         self._running = False
+        self._closed = False
         self._thread = None
         self.error = None
         self.fps = 0.0
@@ -59,10 +60,30 @@ class FrameSource:
         return self
 
     def stop(self):
+        """Shut the camera down without racing its own capture thread.
+
+        ``capture.read()`` can sit in the driver for seconds. Releasing the
+        device from another thread while it is in there left a zombie thread
+        spinning on a freed handle - it still owned the device node, so the
+        replacement camera opened onto nothing and the picture froze for good.
+        So: ask the thread to stop, wake anyone waiting, and only close the
+        device ourselves if the thread really finished. Otherwise the thread
+        closes it on its way out.
+        """
         self._running = False
-        if self._thread is not None:
-            self._thread.join(timeout=2.0)
-        self._close()
+        with self._lock:
+            self._new_frame.notify_all()
+
+        joined = True
+        if self._thread is not None and self._thread is not threading.current_thread():
+            self._thread.join(timeout=5.0)
+            joined = not self._thread.is_alive()
+        self._thread = None
+
+        if joined:
+            self._close_once()
+        else:
+            self.error = "camera %s did not stop cleanly" % self.name
 
     # -- to implement ---------------------------------------------------
     def _open(self):
@@ -88,7 +109,26 @@ class FrameSource:
             self._sequence += 1
             self._new_frame.notify_all()
 
+    def _close_once(self):
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._close()
+        except Exception as exc:
+            self.error = "closing %s failed: %s" % (self.name, exc)
+
     def _loop(self):
+        try:
+            self._capture_loop()
+        finally:
+            # Whoever leaves last turns the lights off. If stop() gave up
+            # waiting, this is the only place the device gets released.
+            self._close_once()
+            with self._lock:
+                self._new_frame.notify_all()
+
+    def _capture_loop(self):
         failures = 0
         while self._running:
             try:
@@ -122,7 +162,7 @@ class FrameSource:
         Returns ``(frame, sequence)``; ``frame`` is ``None`` on timeout.
         """
         with self._lock:
-            if last_sequence is not None and self._sequence == last_sequence:
+            if self._frame is None or self._sequence == last_sequence:
                 self._new_frame.wait(timeout)
             if self._frame is None or self._sequence == last_sequence:
                 return None, self._sequence
