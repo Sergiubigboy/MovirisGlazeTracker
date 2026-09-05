@@ -24,7 +24,6 @@ if (-not (Test-Path ".venv")) {
 }
 
 $args = @("-m", "glaze", "--port", "$Port")
-if (-not $Scene) { $args += @("--scene", "none") }
 
 Write-Host ""
 Write-Host "  deschide in browser:  http://localhost:$Port/" -ForegroundColor Green

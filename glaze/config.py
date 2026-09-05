@@ -409,6 +409,9 @@ def config_from_args(argv=None) -> Config:
 # camera capture sizes) stays under the command line's control, so a saved
 # value can never make the service impossible to start.
 PERSISTABLE = {
+    # Which physical camera plays which role. Picked in the dashboard, because
+    # nothing in a USB node says whether it is pointed at an eye or a room.
+    "eye_source", "scene_source",
     "camera_swapped", "flip_eye_vertical", "flip_eye_horizontal",
     "flip_scene_vertical", "flip_scene_horizontal", "rotate_eye_degrees",
     "draw_overlay", "roi_mode", "write_gaze_file", "jpeg_quality",

@@ -149,11 +149,16 @@ class GlazeApp:
         camera modules, so that choice has to come from the user.
         """
         cfg = self.cfg
+
+        # Probe even when both roles are pinned: the dashboard's camera menus
+        # are built from this list, and an empty menu is no way to fix a wrong
+        # choice.
+        indices = cameras.readable_device_indices()
+        self.detected_cameras = list(indices)
+
         if "auto" not in (cfg.eye_source, cfg.scene_source):
             return cfg.eye_source, cfg.scene_source
 
-        indices = cameras.readable_device_indices()
-        self.detected_cameras = list(indices)
         if cfg.camera_swapped:
             indices = list(reversed(indices))
 
@@ -855,10 +860,43 @@ class GlazeApp:
             return {"ok": True, "offset": [cfg.gaze_offset_x, cfg.gaze_offset_y],
                     "note": "recalibrează scena după asta"}
 
+        if action == "set_camera":
+            role = str(payload.get("role") or "")
+            source = str(payload.get("source") or "").strip()
+            if role not in ("eye", "scene"):
+                return {"ok": False, "error": "role must be eye or scene"}
+
+            other = "scene" if role == "eye" else "eye"
+            # Two roles on one node means one of them gets no frames at all,
+            # which looked exactly like a broken camera. Give the other role
+            # the node this one is leaving instead.
+            if source not in ("", "none", "auto"):
+                if getattr(cfg, other + "_source") == source:
+                    setattr(cfg, other + "_source", getattr(cfg, role + "_source"))
+
+            setattr(cfg, role + "_source", source or "none")
+            config_module.save_runtime_settings(cfg, {
+                "eye_source": cfg.eye_source, "scene_source": cfg.scene_source})
+            self.log.add("state", "camera role set",
+                         {"eye": cfg.eye_source, "scene": cfg.scene_source})
+            return self.restart_cameras()
+
         if action == "swap_cameras":
-            cfg.camera_swapped = not cfg.camera_swapped
-            config_module.save_runtime_settings(cfg, {"camera_swapped": cfg.camera_swapped})
-            self.log.add("state", "cameras swapped", {"swapped": cfg.camera_swapped})
+            # Exchange the two roles outright. Reversing the detected list
+            # instead meant that with three cameras plugged in the eye jumped
+            # from the first to the last and the middle one was unreachable.
+            eye, scene = self.active_sources.get("eye"), self.active_sources.get("scene")
+            usable = {"", "auto", "none"}
+            if eye not in usable and scene not in usable:
+                cfg.eye_source, cfg.scene_source = scene, eye
+                config_module.save_runtime_settings(cfg, {
+                    "eye_source": cfg.eye_source, "scene_source": cfg.scene_source})
+            else:
+                cfg.camera_swapped = not cfg.camera_swapped
+                config_module.save_runtime_settings(
+                    cfg, {"camera_swapped": cfg.camera_swapped})
+            self.log.add("state", "cameras swapped",
+                         {"eye": cfg.eye_source, "scene": cfg.scene_source})
             result = self.restart_cameras()
             result["swapped"] = cfg.camera_swapped
             # The old calibration mapped gaze onto the *other* camera, so it

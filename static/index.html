@@ -201,6 +201,12 @@ window.addEventListener("error", function (e) {
       <button onclick="setCenter()">setează centrul privirii</button>
       <button id="btnStreamMode" onclick="toggleStreamMode()">stream continuu</button>
     </div>
+    <div class="row" style="align-items:center;gap:8px">
+      <label style="color:var(--muted);font-size:11px">ochi</label>
+      <select id="selEye" onchange="setCamera('eye', this.value)"></select>
+      <label style="color:var(--muted);font-size:11px">scenă</label>
+      <select id="selScene" onchange="setCamera('scene', this.value)"></select>
+    </div>
     <p id="camInfo" style="color:var(--muted);font-size:11px;margin:0 0 10px"></p>
 
     <div class="row">
@@ -378,13 +384,48 @@ function setCenter() {
   }, 1500);
 }
 
+// Which camera is the eye and which is the scene cannot be worked out from
+// the devices themselves, so stop guessing at it and let it be chosen. The
+// swap button only ever made sense with exactly two cameras plugged in.
+function fillCameraPicker(select, cfg, role) {
+  var active = (cfg.active_sources || {})[role] || "";
+  var options = [["auto", "automat"], ["none", "niciuna"]];
+  (cfg.detected_cameras || []).forEach(function (index) {
+    options.push(["usb:" + index, "camera " + index]);
+  });
+  // Keep a configured device visible even when this probe missed it, so the
+  // menu never silently drops the camera that is actually in use.
+  if (active && !options.some(function (o) { return o[0] === active; })) {
+    options.push([active, active]);
+  }
+
+  select.innerHTML = "";
+  options.forEach(function (option) {
+    var el = document.createElement("option");
+    el.value = option[0];
+    el.textContent = option[1];
+    if (option[0] === active) el.selected = true;
+    select.appendChild(el);
+  });
+}
+
+function setCamera(role, source) {
+  log("comut camera pentru „" + role + "”...");
+  send("set_camera", { role: role, source: source }).then(function (data) {
+    if (data && data.ok === false) { log(data.error); return; }
+    log("ochi=" + data.sources.eye + "  scenă=" + (data.sources.scene || "niciuna"));
+    refreshCameraInfo();
+  });
+}
+
 function refreshCameraInfo() {
   fetch("/api/config").then(function (r) { return r.json(); }).then(function (cfg) {
     var found = (cfg.detected_cameras || []).join(", ") || "niciuna";
     document.getElementById("camInfo").textContent =
       "detectate: [" + found + "]  ·  ochi=" + (cfg.active_sources.eye || "-") +
-      "  scenă=" + (cfg.active_sources.scene || "-") +
-      (cfg.camera_swapped ? "  (inversate)" : "");
+      "  scenă=" + (cfg.active_sources.scene || "niciuna");
+    fillCameraPicker(document.getElementById("selEye"), cfg, "eye");
+    fillCameraPicker(document.getElementById("selScene"), cfg, "scene");
   });
 }
 
