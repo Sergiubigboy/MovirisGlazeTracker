@@ -670,6 +670,15 @@ class EyeTracker:
                 and now - self._last_pupil_time > cfg.pupil_track_timeout_s):
             self._last_pupil_center = None
 
+        # Some V4L2 nodes open and deliver "frames" that are not images at all
+        # (metadata streams, 1xN buffers). Say so plainly instead of throwing
+        # from somewhere deep in the pipeline.
+        if frame is None or frame.ndim < 2 or min(frame.shape[:2]) < 16:
+            raise ValueError("frame is not an image: shape=%s"
+                             % (None if frame is None else frame.shape,))
+        if frame.ndim == 3 and frame.shape[2] == 4:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+
         frame = crop_to_aspect_ratio(frame, cfg.proc_width, cfg.proc_height)
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
 

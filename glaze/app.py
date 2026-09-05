@@ -95,6 +95,7 @@ class GlazeApp:
         self.log = EventLog(cfg.conversation_log_size)
         self.conversation = ConversationEngine(cfg, self, self.log)
         self._last_gaze_log = 0.0
+        self._last_track_error_log = 0.0
 
         self.channels = {"eye": JpegChannel("eye"), "scene": JpegChannel("scene")}
         self.stopping = False
@@ -275,7 +276,20 @@ class GlazeApp:
             try:
                 result, annotated = self.tracker.process_frame(frame, draw=draw)
             except Exception as exc:
+                # Do not fail silently: an exception here used to leave the eye
+                # pane permanently blank with the error only in a field nobody
+                # reads. Log it (rate limited) and still show the raw frame, so
+                # it is obvious both that something broke and what the camera
+                # is actually pointed at.
                 self.notice = "tracking error: %s" % exc
+                now = time.time()
+                if now - self._last_track_error_log > 5.0:
+                    self._last_track_error_log = now
+                    self.log.add("error", "process_frame failed: %s" % exc,
+                                 {"frame_shape": list(getattr(frame, "shape", []))})
+                if watching:
+                    self.channels["eye"].publish(
+                        cameras.encode_jpeg(frame, cfg.jpeg_quality))
                 time.sleep(0.05)
                 continue
 
